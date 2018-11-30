@@ -1,0 +1,65 @@
+{
+  "name": "PyTorch WaveGlow",
+  "n_gpu": 2,
+  "arch": {
+    "type": "WaveGlow",
+    "args": {
+      "flows": 12,
+      "n_group": 8,
+      "n_early_every": 4,
+      "n_early_size": 2,
+      "sr": 22050,
+      "window_size": 1024,
+      "hop_size": 256,
+      "n_mels": 80,
+      "dilation_channels": 256,
+      "residual_channels": 256,
+      "skip_channels": 256,
+      "depth": 8,
+      "radix": 3,
+      "bias": false
+    }
+  },
+  "data_loader": {
+    "type": "RandomWaveFileLoader",
+    "args": {
+      "data_dir": "/host/data_dsk1/dataset/LJSpeech-1.1/wavs",
+      "batch_size": 8,
+      "num_workers": 2,
+      "segment": 16000
+    }
+  },
+  "optimizer": {
+    "type": "Adam",
+    "args": {
+      "lr": 5e-5,
+      "weight_decay": 0
+    }
+  },
+  "loss": {
+    "type": "WaveGlowLoss",
+    "args": {
+      "sigma": 1.0,
+      "elementwise_mean": true
+    }
+  },
+  "metrics": [
+  ],
+  "lr_scheduler": {
+    "type": "StepLR",
+    "args": {
+      "step_size": 50,
+      "gamma": 0.1
+    }
+  },
+  "trainer": {
+    "steps": 580000,
+    "save_dir": "saved/",
+    "save_freq": 5000,
+    "verbosity": 2
+  },
+  "visualization": {
+    "tensorboardX": true,
+    "log_dir": "saved/runs"
+  }
+}
