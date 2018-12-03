@@ -29,6 +29,7 @@ class BaseTrainer:
         self.steps = config['trainer']['steps']
         self.save_freq = config['trainer']['save_freq']
         self.verbosity = config['trainer']['verbosity']
+        self.start_step = 0
 
         # setup directory for checkpoint saving
         start_time = datetime.datetime.now().strftime('%m%d_%H%M%S')

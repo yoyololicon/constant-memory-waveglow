@@ -32,8 +32,8 @@ class _NonCasaulLayer(nn.Module):
 
     def forward(self, x, y):
         xy = torch.cat((x, y), 1)
-        raw_z = self.WV(xy)
-        z = torch.tanh(raw_z[:, :self.d_size]) * torch.sigmoid(raw_z[:, self.d_size:])
+        zw, zf = self.WV(xy).split(self.d_size, 1)
+        z = torch.tanh(zw) * torch.sigmoid(zf)
         *z, skip = self.W_o(z).split(self.chs_split, 1)
         return z[0] + x if len(z) else None, skip
 
@@ -103,8 +103,6 @@ class InvertibleConv1x1(nn.Conv1d):
     def __init__(self, c):
         super().__init__(c, c, 1, bias=False)
         W = torch.randn(c, c).qr()[0]
-        if W.det() < 0:
-            W[:, 0] *= -1
         self.weight.data = W[..., None]
 
     def inverse(self, z):
@@ -183,8 +181,10 @@ class WaveGlow(BaseModel):
         mel_S.add_(1e-7).log_()
         return mel_S.view(self.n_mels, batch_size, -1).transpose(0, 1)
 
-    def forward(self, x):
-        h = F.pad(self.get_mel(x), (0, 1))
+    def forward(self, x, h=None):
+        if h is None:
+            h = self.get_mel(x)
+        h = F.pad(h, (0, 1))
         # y = F.interpolate(h, size=((h.size(2) - 1) * self.upsample_factor + 1,), mode='linear')
         y = self.upsampler(h)
 
@@ -238,7 +238,7 @@ class WaveGlow(BaseModel):
             z[:, n_half:] -= t
             z[:, n_half:] /= log_s.exp()
 
-            z = invconv.inverse(z)
+            z[:] = invconv.inverse(z)
 
             if k % self.n_early_every == 0 and k:
                 z = torch.cat((remained_z.pop(), z), 1)

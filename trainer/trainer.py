@@ -24,14 +24,16 @@ class Trainer(BaseTrainer):
         Full training logic
         """
         for step, data in enumerate(self.data_loader):
-            step += 1
+            step += 1 + self.start_step
             self.model.train()
 
             data = data.to(self.device)
 
             self.optimizer.zero_grad()
             output = self.model(data)
+            print(output[0].shape, output[1].shape)
             loss = self.loss(*output)
+            print(loss)
             if loss.size(0) > 1:
                 loss = loss.mean()
             loss.backward()
@@ -41,11 +43,10 @@ class Trainer(BaseTrainer):
             self.writer.add_scalar('loss', loss.item())
 
             if self.verbosity >= 2 and step % self.log_step == 0:
-                self.logger.info('Train Step: {} [{}/{} ({:.0f}%)] Loss: {:.6f}'.format(
+                self.logger.info('Train Step: [{}/{} ({:.0f}%)] Loss: {:.6f}'.format(
                     step,
-                    step * self.data_loader.batch_size,
-                    self.data_loader.n_samples,
-                    100.0 * step / len(self.data_loader),
+                    self.steps,
+                    100.0 * step / self.steps,
                     loss.item()))
                 self.writer.add_image('input', make_grid(data.cpu(), nrow=8, normalize=True))
 
@@ -54,3 +55,6 @@ class Trainer(BaseTrainer):
 
             if step % self.save_freq == 0:
                 self._save_checkpoint(step)
+
+            if step >= self.steps:
+                break
