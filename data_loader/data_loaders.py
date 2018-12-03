@@ -11,7 +11,7 @@ from concurrent.futures import ProcessPoolExecutor
 
 
 class _MusicNetDataset(Dataset):
-    """
+    """s
     MusicNet Dataset.
     """
     train_data = 'train_data'
@@ -20,8 +20,8 @@ class _MusicNetDataset(Dataset):
 
     def __init__(self,
                  data_dir,
-                 n_workers,
                  size,
+                 n_workers,
                  sr=None,
                  segment=16384,
                  training=True,
@@ -101,10 +101,10 @@ class MusicNetDataLoader(BaseDataLoader):
     MNIST data loading demo using BaseDataLoader
     """
 
-    def __init__(self, data_dir, batch_size, shuffle, validation_split, num_workers, **kwargs):
+    def __init__(self, steps, data_dir, batch_size, num_workers, **kwargs):
         self.data_dir = data_dir
-        self.dataset = _MusicNetDataset(data_dir, num_workers, **kwargs)
-        super().__init__(self.dataset, batch_size, shuffle, validation_split, num_workers)
+        self.dataset = _MusicNetDataset(data_dir, batch_size * steps, num_workers, **kwargs)
+        super().__init__(self.dataset, batch_size, False, 0, num_workers)
 
 
 class RandomWaveFileLoader(BaseDataLoader):
@@ -114,5 +114,5 @@ class RandomWaveFileLoader(BaseDataLoader):
 
     def __init__(self, steps, data_dir, batch_size, num_workers, **kwargs):
         self.data_dir = data_dir
-        self.dataset = _WAVDataset(data_dir, batch_size * steps, ** kwargs)
+        self.dataset = _WAVDataset(data_dir, batch_size * steps, **kwargs)
         super().__init__(self.dataset, batch_size, False, 0., num_workers)

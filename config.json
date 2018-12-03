@@ -1,38 +1,41 @@
 {
-  "name": "PyTorch WaveGlow",
+  "name": "MusicGlow",
   "n_gpu": 2,
   "arch": {
     "type": "WaveGlow",
     "args": {
-      "flows": 12,
+      "flows": 20,
       "n_group": 8,
-      "n_early_every": 4,
+      "n_early_every": 6,
       "n_early_size": 2,
       "sr": 22050,
-      "window_size": 1024,
-      "hop_size": 256,
+      "window_size": 2048,
+      "hop_size": 512,
       "n_mels": 80,
       "dilation_channels": 256,
       "residual_channels": 256,
       "skip_channels": 256,
-      "depth": 8,
+      "depth": 4,
       "radix": 3,
       "bias": false
     }
   },
   "data_loader": {
-    "type": "RandomWaveFileLoader",
+    "type": "MusicNetDataLoader",
     "args": {
-      "data_dir": "/host/data_dsk1/dataset/LJSpeech-1.1/wavs",
-      "batch_size": 8,
+      "data_dir": "/host/data_dsk1/dataset/musicnet",
+      "batch_size": 16,
       "num_workers": 2,
-      "segment": 16000
+      "sr": 22050,
+      "segment": 16384,
+      "training": true,
+      "category": "Solo Cello"
     }
   },
   "optimizer": {
     "type": "Adam",
     "args": {
-      "lr": 5e-5,
+      "lr": 1e-4,
       "weight_decay": 0
     }
   },
@@ -53,7 +56,7 @@
     }
   },
   "trainer": {
-    "steps": 580000,
+    "steps": 300000,
     "save_dir": "saved/",
     "save_freq": 5000,
     "verbosity": 2
