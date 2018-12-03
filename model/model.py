@@ -113,7 +113,7 @@ class InvertibleConv1x1(nn.Conv1d):
 
     def forward(self, z):
         batch_size, group_size, n_of_groups = z.size()
-        log_det_W = batch_size * n_of_groups * self.weight.squeeze().det().abs().log()  # should fix nan logdet
+        log_det_W = n_of_groups * self.weight.squeeze().det().abs().log()  # should fix nan logdet
         z = F.conv1d(z, self.weight)
         return z, log_det_W
 
@@ -213,7 +213,7 @@ class WaveGlow(BaseModel):
             xb = xb * log_s.exp() + t
             x = torch.cat((xa, xb), 1)
 
-            logdet = logdet + log_det_W + log_s.sum()
+            logdet = logdet + log_det_W + log_s.sum((1, 2))
 
         assert split_sections[1] == self.z_split_sizes[-1]
         output_audio.append(x)

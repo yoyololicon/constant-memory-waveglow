@@ -31,11 +31,7 @@ class Trainer(BaseTrainer):
 
             self.optimizer.zero_grad()
             output = self.model(data)
-            print(output[0].shape, output[1].shape)
             loss = self.loss(*output)
-            print(loss)
-            if loss.size(0) > 1:
-                loss = loss.mean()
             loss.backward()
             self.optimizer.step()
 
