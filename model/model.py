@@ -107,7 +107,10 @@ class InvertibleConv1x1(nn.Conv1d):
 
     def inverse(self, z):
         if not hasattr(self, 'inv_weight'):
-            self.inv_weight = self.weight.squeeze().inverse()[..., None]
+            if 'HalfTensor' in z.type():
+                self.inv_weight = self.weight.float().squeeze().inverse()[..., None].half()
+            else:
+                self.inv_weight = self.weight.squeeze().inverse()[..., None]
         z = F.conv1d(z, self.inv_weight)
         return z
 

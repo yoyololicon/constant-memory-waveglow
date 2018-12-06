@@ -4,7 +4,7 @@
   "arch": {
     "type": "WaveGlow",
     "args": {
-      "flows": 20,
+      "flows": 18,
       "n_group": 8,
       "n_early_every": 6,
       "n_early_size": 2,
@@ -24,7 +24,7 @@
     "type": "MusicNetDataLoader",
     "args": {
       "data_dir": "/host/data_dsk1/dataset/musicnet",
-      "batch_size": 16,
+      "batch_size": 4,
       "num_workers": 2,
       "sr": 22050,
       "segment": 16384,
