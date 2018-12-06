@@ -1,0 +1,68 @@
+{
+  "name": "MusicGlow",
+  "n_gpu": 2,
+  "arch": {
+    "type": "WaveGlow",
+    "args": {
+      "flows": 18,
+      "n_group": 8,
+      "n_early_every": 6,
+      "n_early_size": 2,
+      "sr": 22050,
+      "window_size": 2048,
+      "hop_size": 512,
+      "n_mels": 80,
+      "dilation_channels": 256,
+      "residual_channels": 256,
+      "skip_channels": 256,
+      "depth": 4,
+      "radix": 3,
+      "bias": false
+    }
+  },
+  "data_loader": {
+    "type": "MusicNetDataLoader",
+    "args": {
+      "data_dir": "/host/data_dsk1/dataset/musicnet",
+      "batch_size": 4,
+      "num_workers": 2,
+      "sr": 22050,
+      "segment": 16384,
+      "training": true,
+      "category": "Solo Cello"
+    }
+  },
+  "optimizer": {
+    "type": "Adam",
+    "args": {
+      "lr": 1e-4,
+      "weight_decay": 0
+    }
+  },
+  "loss": {
+    "type": "WaveGlowLoss",
+    "args": {
+      "sigma": 1.0,
+      "elementwise_mean": true
+    }
+  },
+  "metrics": [
+  ],
+  "lr_scheduler": {
+    "type": "StepLR",
+    "args": {
+      "step_size": 10000,
+      "gamma": 0.1
+    }
+  },
+  "trainer": {
+    "steps": 300000,
+    "save_dir": "saved/",
+    "save_freq": 5000,
+    "verbosity": 2
+  },
+  "visualization": {
+    "tensorboardX": true,
+    "log_dir": "saved/runs"
+  }
+}

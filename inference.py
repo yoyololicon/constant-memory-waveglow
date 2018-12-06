@@ -43,7 +43,7 @@ def main(config, resume, infile, outfile, sigma, dur, half):
     start = time()
     x = model.infer(mel, sigma)
     cost = time() - start
-    print("Time cost:", cost, ", Speed:", x.numel() / cost / 1000, "kHZ")
+    print("Time cost: {:.4f}, Speed: {:.4f} kHz".format(cost, x.numel() / cost / 1000))
     # print(x.max(), x.min())
     write_wav(outfile, x.cpu().float().numpy(), sr, False)
 

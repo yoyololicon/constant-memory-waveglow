@@ -1,35 +1,32 @@
 {
-  "name": "MusicGlow",
+  "name": "PyTorch WaveGlow",
   "n_gpu": 2,
   "arch": {
     "type": "WaveGlow",
     "args": {
-      "flows": 18,
+      "flows": 12,
       "n_group": 8,
-      "n_early_every": 6,
+      "n_early_every": 4,
       "n_early_size": 2,
       "sr": 22050,
-      "window_size": 2048,
-      "hop_size": 512,
+      "window_size": 1024,
+      "hop_size": 256,
       "n_mels": 80,
-      "dilation_channels": 256,
-      "residual_channels": 256,
-      "skip_channels": 256,
-      "depth": 4,
+      "dilation_channels": 512,
+      "residual_channels": 512,
+      "skip_channels": 512,
+      "depth": 8,
       "radix": 3,
-      "bias": false
+      "bias": true
     }
   },
   "data_loader": {
-    "type": "MusicNetDataLoader",
+    "type": "RandomWaveFileLoader",
     "args": {
       "data_dir": "/host/data_dsk1/dataset/musicnet",
-      "batch_size": 4,
-      "num_workers": 2,
-      "sr": 22050,
-      "segment": 16384,
-      "training": true,
-      "category": "Solo Cello"
+      "batch_size": 24,
+      "num_workers": 4,
+      "segment": 16000
     }
   },
   "optimizer": {
@@ -42,7 +39,7 @@
   "loss": {
     "type": "WaveGlowLoss",
     "args": {
-      "sigma": 1.0,
+      "sigma": 0.7,
       "elementwise_mean": true
     }
   },
@@ -56,9 +53,9 @@
     }
   },
   "trainer": {
-    "steps": 300000,
+    "steps": 580000,
     "save_dir": "saved/",
-    "save_freq": 5000,
+    "save_freq": 10000,
     "verbosity": 2
   },
   "visualization": {
