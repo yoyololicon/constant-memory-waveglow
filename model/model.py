@@ -7,7 +7,7 @@ from librosa.filters import mel
 import numpy as np
 
 
-class _NonCasaulLayer(nn.Module):
+class _NonCausalLayer(nn.Module):
     def __init__(self,
                  dilation,
                  dilation_channels,
@@ -62,14 +62,14 @@ class WN(nn.Module):
         self.start = nn.Conv1d(in_channels, residual_channels, 1, bias=bias)
         self.start.apply(add_weight_norms)
 
-        self.layers = nn.ModuleList(_NonCasaulLayer(d,
+        self.layers = nn.ModuleList(_NonCausalLayer(d,
                                                     dilation_channels,
                                                     residual_channels,
                                                     skip_channels,
                                                     aux_channels,
                                                     radix,
                                                     bias) for d in self.dilations[:-1])
-        self.layers.append(_NonCasaulLayer(self.dilations[-1],
+        self.layers.append(_NonCausalLayer(self.dilations[-1],
                                            dilation_channels,
                                            residual_channels,
                                            skip_channels,
