@@ -1,38 +1,38 @@
 {
   "name": "PyTorch WaveGlow",
-  "n_gpu": 2,
+  "n_gpu": 1,
   "arch": {
     "type": "WaveGlow",
     "args": {
-      "flows": 12,
+      "flows": 8,
       "n_group": 8,
-      "n_early_every": 4,
+      "n_early_every": 8,
       "n_early_size": 2,
-      "sr": 22050,
+      "sr": 16000,
       "window_size": 1024,
-      "hop_size": 256,
+      "hop_size": 128,
       "n_mels": 80,
-      "dilation_channels": 512,
-      "residual_channels": 512,
-      "skip_channels": 512,
+      "dilation_channels": 256,
+      "residual_channels": 256,
+      "skip_channels": 256,
       "depth": 8,
       "radix": 3,
-      "bias": true
+      "bias": false
     }
   },
   "data_loader": {
     "type": "RandomWaveFileLoader",
     "args": {
-      "data_dir": "/host/data_dsk1/dataset/musicnet",
-      "batch_size": 24,
-      "num_workers": 4,
-      "segment": 16000
+      "data_dir": "/media/ycy/Shared/Datasets/cmu_us_rms_arctic/wav",
+      "batch_size": 1,
+      "num_workers": 1,
+      "segment": 8000
     }
   },
   "optimizer": {
     "type": "Adam",
     "args": {
-      "lr": 1e-4,
+      "lr": 2e-4,
       "weight_decay": 0
     }
   },
@@ -53,13 +53,13 @@
     }
   },
   "trainer": {
-    "steps": 580000,
+    "steps": 1000,
     "save_dir": "saved/",
     "save_freq": 10000,
     "verbosity": 2
   },
   "visualization": {
-    "tensorboardX": true,
+    "tensorboardX": false,
     "log_dir": "saved/runs"
   }
 }

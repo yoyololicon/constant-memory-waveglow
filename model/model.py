@@ -6,6 +6,8 @@ from utils.util import add_weight_norms
 from librosa.filters import mel
 import numpy as np
 
+from model.efficient_modules import AffineCouplingBlock, InvertibleConv1x1
+
 
 class _NonCausalLayer(nn.Module):
     def __init__(self,
@@ -19,7 +21,6 @@ class _NonCausalLayer(nn.Module):
                  last_layer=False):
         super().__init__()
         pad_size = dilation * (radix - 1) // 2
-        self.d_size = dilation_channels
         self.WV = nn.Conv1d(residual_channels + aux_channels, dilation_channels * 2, kernel_size=radix,
                             padding=pad_size, dilation=dilation, bias=bias)
 
@@ -32,8 +33,8 @@ class _NonCausalLayer(nn.Module):
 
     def forward(self, x, y):
         xy = torch.cat((x, y), 1)
-        zw, zf = self.WV(xy).split(self.d_size, 1)
-        z = torch.tanh(zw) * torch.sigmoid(zf)
+        zw, zf = self.WV(xy).chunk(2, 1)
+        z = zw.tanh_().mul(zf.sigmoid_())
         *z, skip = self.W_o(z).split(self.chs_split, 1)
         return z[0] + x if len(z) else None, skip
 
@@ -79,10 +80,10 @@ class WN(nn.Module):
                                            last_layer=True))
         self.layers.apply(add_weight_norms)
 
-        self.end = nn.Conv1d(skip_channels, in_channels * 2, 1, bias=bias)
+        self.end = nn.Conv1d(skip_channels, in_channels * 2, 1)
         self.end.weight.data.zero_()
-        if bias:
-            self.end.bias.data.zero_()
+        self.end.bias.data[:in_channels].fill_(1.)
+        self.end.bias.data[in_channels:].zero_()
 
     def forward(self, x, y):
         x = self.start(x)
@@ -90,35 +91,7 @@ class WN(nn.Module):
         for layer in self.layers:
             x, skip = layer(x, y)
             cum_skip = cum_skip + skip
-        return self.end(cum_skip).split(self.in_chs, 1)
-
-
-class InvertibleConv1x1(nn.Conv1d):
-    """
-    The layer outputs both the convolution, and the log determinant
-    of its weight matrix.  If reverse=True it does convolution with
-    inverse
-    """
-
-    def __init__(self, c):
-        super().__init__(c, c, 1, bias=False)
-        W = torch.randn(c, c).qr()[0]
-        self.weight.data = W[..., None]
-
-    def inverse(self, z):
-        if not hasattr(self, 'inv_weight'):
-            if 'HalfTensor' in z.type():
-                self.inv_weight = self.weight.float().squeeze().inverse()[..., None].half()
-            else:
-                self.inv_weight = self.weight.squeeze().inverse()[..., None]
-        z = F.conv1d(z, self.inv_weight)
-        return z
-
-    def forward(self, z):
-        batch_size, group_size, n_of_groups = z.size()
-        log_det_W = n_of_groups * self.weight.squeeze().det().abs().log()  # should fix nan logdet
-        z = F.conv1d(z, self.weight)
-        return z, log_det_W
+        return self.end(cum_skip).chunk(2, 1)
 
 
 class WaveGlow(BaseModel):
@@ -158,23 +131,19 @@ class WaveGlow(BaseModel):
             if k % self.n_early_every == 0 and k:
                 n_remaining_channels -= n_early_size
                 self.z_split_sizes.append(n_early_size)
-            self.invconv1x1.append(InvertibleConv1x1(n_remaining_channels))
-            self.WNs.append(WN(n_remaining_channels // 2, n_mels, **kwargs))
+            self.invconv1x1.append(InvertibleConv1x1(n_remaining_channels, memory_efficient=True))
+            self.WNs.append(
+                AffineCouplingBlock(WN, memory_efficient=True, in_channels=n_remaining_channels // 2,
+                                    aux_channels=n_mels, **kwargs))
         self.z_split_sizes.append(n_remaining_channels)
 
         filters = mel(sr, window_size, n_mels, fmax=8000)
         self.filter_idx = np.nonzero(filters)
-        self.filter_value = nn.Parameter(torch.Tensor(filters[self.filter_idx]), requires_grad=False)
+        self.register_buffer('filter_value', torch.Tensor(filters[self.filter_idx]))
         self.filter_size = torch.Size(filters.shape)
-        self.window = nn.Parameter(torch.hann_window(window_size), requires_grad=False)
+        self.register_buffer('window', torch.hann_window(window_size))
 
     def get_mel(self, x):
-        """
-        Get mel-spectrogram from raw wave.
-
-        :param x:
-        :return:
-        """
         batch_size = x.size(0)
         S = torch.stft(x, self.win_size, self.hop_size, window=self.window, pad_mode='constant').pow(2).sum(3)
         mel_filt = torch.sparse_coo_tensor(self.filter_idx, self.filter_value, self.filter_size)
@@ -199,24 +168,20 @@ class WaveGlow(BaseModel):
         y = y[..., :x.size(2)]
 
         output_audio = []
-        logdet = 0
-
         split_sections = [self.n_early_size, self.n_group]
 
-        for k, (invconv, WN) in enumerate(zip(self.invconv1x1, self.WNs)):
+        for k, (invconv, affine_coup) in enumerate(zip(self.invconv1x1, self.WNs)):
             if k % self.n_early_every == 0 and k:
                 split_sections[1] -= self.n_early_size
                 early_output, x = x.split(split_sections, 1)
                 output_audio.append(early_output)
 
             x, log_det_W = invconv(x)
-
-            xa, xb = x.split(x.size(1) // 2, 1)
-            log_s, t = WN(xa, y)
-            xb = xb * log_s.exp() + t
-            x = torch.cat((xa, xb), 1)
-
-            logdet = logdet + log_det_W + log_s.sum((1, 2))
+            x, log_s = affine_coup(x, y)
+            if k:
+                logdet += log_det_W + log_s.sum((1, 2))
+            else:
+                logdet = log_det_W + log_s.sum((1, 2))
 
         assert split_sections[1] == self.z_split_sizes[-1]
         output_audio.append(x)
@@ -248,9 +213,6 @@ class WaveGlow(BaseModel):
 
         x = z.transpose(1, 2).contiguous().view(batch_dim, -1).squeeze()
         return x
-
-
-
 
 
 if __name__ == '__main__':
