@@ -4,7 +4,7 @@
   "arch": {
     "type": "WaveGlow",
     "args": {
-      "flows": 8,
+      "flows": 4,
       "n_group": 8,
       "n_early_every": 8,
       "n_early_size": 2,
@@ -15,7 +15,7 @@
       "dilation_channels": 256,
       "residual_channels": 256,
       "skip_channels": 256,
-      "depth": 8,
+      "depth": 3,
       "radix": 3,
       "bias": false
     }
@@ -24,9 +24,9 @@
     "type": "RandomWaveFileLoader",
     "args": {
       "data_dir": "/media/ycy/Shared/Datasets/cmu_us_rms_arctic/wav",
-      "batch_size": 1,
+      "batch_size": 8,
       "num_workers": 1,
-      "segment": 8000
+      "segment": 16000
     }
   },
   "optimizer": {

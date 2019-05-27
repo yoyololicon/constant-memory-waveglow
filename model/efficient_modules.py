@@ -93,7 +93,7 @@ class AffineCouplingFunc(Function):
         za, zb = z.chunk(2, 1)
         dza, dzb = z_grad.chunk(2, 1)
 
-        xa, dxa = za, dza
+        xa = za
         xa.requires_grad = True
         with set_grad_enabled(True):
             log_s, t = F(xa, y)
@@ -102,17 +102,16 @@ class AffineCouplingFunc(Function):
             s = log_s.exp()
             xb = (zb - t) / s
 
-        param_list = [xa] + list(F.parameters())
+        param_list = [xa, y] + list(F.parameters())
         with set_grad_enabled(True):
             # tgrads = grad(t, param_list, grad_outputs=dzb, retain_graph=True)
-            tsgrads = grad(torch.cat((log_s, t), 1), param_list,
-                           grad_outputs=torch.cat((dzb * xb * s + log_s_grad, dzb), 1))
+            dtsdxa, dy, *dw = grad(torch.cat((log_s, t), 1), param_list,
+                                   grad_outputs=torch.cat((dzb * xb * s + log_s_grad, dzb), 1))
 
-            dw = tsgrads[1:]
-            dxa += tsgrads[0]
+            dxa = dza + dtsdxa
             dxb = dzb * s
             dx = torch.cat((dxa, dxb), 1)
-        return (dx, None, None) + dw
+        return (dx, dy, None) + tuple(dw)
 
 
 class InvAffineCouplingFunc(Function):
@@ -138,7 +137,7 @@ class InvAffineCouplingFunc(Function):
         xa, xb = x.chunk(2, 1)
         dxa, dxb = x_grad.chunk(2, 1)
 
-        za, dza = xa, dxa
+        za = xa
         za.requires_grad = True
         with set_grad_enabled(True):
             log_s, t = F(za, y)
@@ -147,17 +146,16 @@ class InvAffineCouplingFunc(Function):
             s = log_s.exp()
             zb = xb * s + t
 
-        param_list = [za] + list(F.parameters())
+        param_list = [za, y] + list(F.parameters())
         with set_grad_enabled(True):
             # tgrads = grad(-t, param_list, grad_outputs=dxb / s, retain_graph=True)
-            tsgrads = grad(torch.cat((-log_s, -t), 1), param_list,
-                           grad_outputs=torch.cat((dxb * zb / s + log_s_grad, dxb / s), 1))
+            dtsdza, dy, *dw = grad(torch.cat((-log_s, -t), 1), param_list,
+                                   grad_outputs=torch.cat((dxb * zb / s + log_s_grad, dxb / s), 1))
 
-            dw = tsgrads[1:]
-            dza += tsgrads[0]
+            dza = dxa + dtsdza
             dzb = dxb / s
             dz = torch.cat((dza, dzb), 1)
-        return (dz, None, None) + dw
+        return (dz, dy, None) + tuple(dw)
 
 
 class Invertible1x1Func(Function):
@@ -189,7 +187,6 @@ class Invertible1x1Func(Function):
 
 
 if __name__ == '__main__':
-
     x = torch.randn(10, 100, 100)
     conv1 = InvertibleConv1x1(100, False)
     # conv1.weight.data.normal_()
@@ -198,13 +195,13 @@ if __name__ == '__main__':
     y1, log1 = conv1.inverse(x)
     y2, log2 = conv2.inverse(x.clone())
     # log2 = log1 = 0
-    #print(y1, y2, log1.item(), log2.item())
+    # print(y1, y2, log1.item(), log2.item())
     y1.sum().add(log1).backward()
     y2.sum().add(log2).backward()
-    #print(conv1.weight.grad, conv2.weight.grad)
+    # print(conv1.weight.grad, conv2.weight.grad)
     print((conv1.weight.grad - conv2.weight.grad).pow(2).mean().sqrt())
 
-    #x, y = torch.randn(1, 10, 100).double(), torch.randn(1, 2, 100).double()
-    #conv = AffineCouplingBlock(10, 2).double()
-    #x.requires_grad = True
-    #print(gradcheck(conv, (x, y)))
+    # x, y = torch.randn(1, 10, 100).double(), torch.randn(1, 2, 100).double()
+    # conv = AffineCouplingBlock(10, 2).double()
+    # x.requires_grad = True
+    # print(gradcheck(conv, (x, y)))
