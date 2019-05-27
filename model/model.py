@@ -80,10 +80,10 @@ class WN(nn.Module):
                                            last_layer=True))
         self.layers.apply(add_weight_norms)
 
-        self.end = nn.Conv1d(skip_channels, in_channels * 2, 1)
+        self.end = nn.Conv1d(skip_channels, in_channels * 2, 1, bias=bias)
         self.end.weight.data.zero_()
-        self.end.bias.data[:in_channels].fill_(1.)
-        self.end.bias.data[in_channels:].zero_()
+        if bias:
+            self.end.bias.data.zero_()
 
     def forward(self, x, y):
         x = self.start(x)

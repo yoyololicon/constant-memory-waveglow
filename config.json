@@ -4,27 +4,27 @@
   "arch": {
     "type": "WaveGlow",
     "args": {
-      "flows": 4,
+      "flows": 12,
       "n_group": 8,
-      "n_early_every": 8,
+      "n_early_every": 4,
       "n_early_size": 2,
       "sr": 16000,
       "window_size": 1024,
       "hop_size": 128,
       "n_mels": 80,
-      "dilation_channels": 256,
-      "residual_channels": 256,
-      "skip_channels": 256,
-      "depth": 3,
+      "dilation_channels": 128,
+      "residual_channels": 128,
+      "skip_channels": 128,
+      "depth": 8,
       "radix": 3,
-      "bias": false
+      "bias": true
     }
   },
   "data_loader": {
     "type": "RandomWaveFileLoader",
     "args": {
       "data_dir": "/media/ycy/Shared/Datasets/cmu_us_rms_arctic/wav",
-      "batch_size": 8,
+      "batch_size": 1,
       "num_workers": 1,
       "segment": 16000
     }
@@ -32,7 +32,7 @@
   "optimizer": {
     "type": "Adam",
     "args": {
-      "lr": 2e-4,
+      "lr": 1e-4,
       "weight_decay": 0
     }
   },
