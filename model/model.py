@@ -131,9 +131,9 @@ class WaveGlow(BaseModel):
             if k % self.n_early_every == 0 and k:
                 n_remaining_channels -= n_early_size
                 self.z_split_sizes.append(n_early_size)
-            self.invconv1x1.append(InvertibleConv1x1(n_remaining_channels, memory_efficient=True))
+            self.invconv1x1.append(InvertibleConv1x1(n_remaining_channels, memory_efficient=False))
             self.WNs.append(
-                AffineCouplingBlock(WN, memory_efficient=True, in_channels=n_remaining_channels // 2,
+                AffineCouplingBlock(WN, memory_efficient=False, in_channels=n_remaining_channels // 2,
                                     aux_channels=n_mels, **kwargs))
         self.z_split_sizes.append(n_remaining_channels)
 
@@ -174,7 +174,9 @@ class WaveGlow(BaseModel):
             if k % self.n_early_every == 0 and k:
                 split_sections[1] -= self.n_early_size
                 early_output, x = x.split(split_sections, 1)
+                # these 2 lines actually copy tensors, may need optimization in the future
                 output_audio.append(early_output)
+                x = x.clone()
 
             x, log_det_W = invconv(x)
             x, log_s = affine_coup(x, y)

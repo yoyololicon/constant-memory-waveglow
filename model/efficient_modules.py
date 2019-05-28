@@ -19,8 +19,7 @@ class InvertibleConv1x1(nn.Conv1d):
     def forward(self, x):
         if hasattr(self, 'efficient_forward'):
             z, log_det_W = self.efficient_forward(x, self.weight)
-            # x.storage().resize_(0)
-            x.data.set_()
+            x.storage().resize_(0)
             return z, log_det_W
         else:
             *_, n_of_groups = x.shape
@@ -31,8 +30,7 @@ class InvertibleConv1x1(nn.Conv1d):
     def inverse(self, z):
         if hasattr(self, 'efficient_inverse'):
             x, log_det_W = self.efficient_inverse(z, self.weight.squeeze().inverse().unsqueeze(-1))
-            # z.storage().resize_(0)
-            z.data.set_()
+            z.storage().resize_(0)
             return x, log_det_W
         else:
             weight = self.weight.squeeze().inverse()
@@ -58,8 +56,7 @@ class AffineCouplingBlock(nn.Module):
     def forward(self, x, y):
         if hasattr(self, 'efficient_forward'):
             z, log_s = self.efficient_forward(x, y, self.F, *self.param_list)
-            # x.storage().resize_(0)
-            x.data.set_()
+            x.storage().resize_(0)
             return z, log_s
         else:
             xa, xb = x.chunk(2, 1)
@@ -72,8 +69,7 @@ class AffineCouplingBlock(nn.Module):
     def inverse(self, z, y):
         if hasattr(self, 'efficient_inverse'):
             x, log_s = self.efficient_inverse(z, y, self.F, *self.param_list)
-            # z.storage().resize_(0)
-            z.data.set_()
+            z.storage().resize_(0)
             return x, log_s
         else:
             za, zb = z.chunk(2, 1)
@@ -94,21 +90,24 @@ class AffineCouplingFunc(Function):
 
             log_s, t = F(xa, y)
             zb = xb * log_s.exp() + t
-            xb.set_()
-            del xb
+            #xb.set_()
+            #del xb
             za = xa
             z = torch.cat((za, zb), 1)
-            za.set_()
-            zb.set_()
-            del za, zb
+            #za.set_()
+            #zb.set_()
+            #del za, zb
 
+        #print('affine forward out', z[0, -1, :10])
         ctx.save_for_backward(x.data, y, z)
-        return x, log_s
+        return z, log_s
 
     @staticmethod
     def backward(ctx, z_grad, log_s_grad):
         F = ctx.F
         x, y, z = ctx.saved_tensors
+        #print('affine backward out', z[0, -1, :10])
+
 
         za, zb = z.chunk(2, 1)
         za, zb = za.contiguous(), zb.contiguous()
@@ -123,9 +122,10 @@ class AffineCouplingFunc(Function):
         with torch.no_grad():
             s = log_s.exp()
             xb = (zb - t) / s
-            xout = torch.cat((xa, xb), 1).contiguous()
+            xout = torch.cat((xa, xb), 1)#.contiguous()
             x.storage().resize_(reduce(mul, xout.shape))
-            x.set_(xout)  # .detach()
+            x.copy_(xout)  # .detach()
+            #print('affine backward in', x[0, -1, :10])
 
         with set_grad_enabled(True):
             param_list = [xa, y] + list(F.parameters())
@@ -211,6 +211,7 @@ class Invertible1x1Func(Function):
             log_det_W *= n_of_groups
             z = F.conv1d(x, weight)
 
+        #print('1x1 forward out', z[0, -1, :10])
         ctx.save_for_backward(x.data, weight, z)
         return z, log_det_W
 
@@ -218,13 +219,14 @@ class Invertible1x1Func(Function):
     def backward(ctx, z_grad, log_det_W_grad):
         x, weight, z = ctx.saved_tensors
         *_, n_of_groups = z.shape
+        #print('1x1 backward out', z[0, -1, :10])
 
         with torch.no_grad():
             inv_weight = weight.squeeze().inverse()
             xout = F.conv1d(z, inv_weight.unsqueeze(-1))
 
             x.storage().resize_(reduce(mul, xout.shape))
-            x.set_(xout)
+            x.copy_(xout)
 
             dx = F.conv1d(z_grad, weight[..., 0].t().unsqueeze(-1))
             dw = z_grad.transpose(0, 1).contiguous().view(weight.shape[0], -1) @ xout.transpose(1, 2).contiguous().view(

@@ -6,7 +6,7 @@
     "args": {
       "flows": 12,
       "n_group": 8,
-      "n_early_every": 4,
+      "n_early_every": 12,
       "n_early_size": 2,
       "sr": 16000,
       "window_size": 1024,
@@ -53,7 +53,7 @@
     }
   },
   "trainer": {
-    "steps": 1000,
+    "steps": 100,
     "save_dir": "saved/",
     "save_freq": 10000,
     "verbosity": 2
