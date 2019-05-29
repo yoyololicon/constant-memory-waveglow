@@ -48,7 +48,8 @@ class WN(nn.Module):
                  skip_channels=256,
                  depth=8,
                  radix=3,
-                 bias=False):
+                 bias=False,
+                 zero_init=True):
         super().__init__()
         dilations = radix ** torch.arange(depth)
         self.dilations = dilations.tolist()
@@ -81,16 +82,20 @@ class WN(nn.Module):
         self.layers.apply(add_weight_norms)
 
         self.end = nn.Conv1d(skip_channels, in_channels * 2, 1, bias=bias)
-        self.end.weight.data.zero_()
-        if bias:
-            self.end.bias.data.zero_()
+        if zero_init:
+            self.end.weight.data.zero_()
+            if bias:
+                self.end.bias.data.zero_()
 
     def forward(self, x, y):
         x = self.start(x)
-        cum_skip = 0
+        cum_skip = None
         for layer in self.layers:
             x, skip = layer(x, y)
-            cum_skip = cum_skip + skip
+            if cum_skip is None:
+                cum_skip = skip
+            else:
+                cum_skip += skip
         return self.end(cum_skip).chunk(2, 1)
 
 
@@ -225,7 +230,7 @@ class WaveGlow(BaseModel):
         samples = steps * self.hop_size
 
         z = h.new_empty((batch_dim, samples)).normal_(std=sigma)
-        #z = torch.randn(batch_dim, self.n_group, group_steps, dtype=y.dtype, device=y.device).mul_(sigma)
+        # z = torch.randn(batch_dim, self.n_group, group_steps, dtype=y.dtype, device=y.device).mul_(sigma)
         x, _ = self.inverse(z, h)
         return x.squeeze()
 

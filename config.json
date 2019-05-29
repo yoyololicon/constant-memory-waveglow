@@ -54,7 +54,7 @@
     }
   },
   "trainer": {
-    "steps": 100,
+    "steps": 50,
     "save_dir": "saved/",
     "save_freq": 10000,
     "verbosity": 2

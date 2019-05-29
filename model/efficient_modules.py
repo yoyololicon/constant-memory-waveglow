@@ -29,11 +29,11 @@ class InvertibleConv1x1(nn.Conv1d):
 
     def inverse(self, z):
         if hasattr(self, 'efficient_inverse'):
-            x, log_det_W = self.efficient_inverse(z, self.weight.squeeze().inverse().unsqueeze(-1))
+            x, log_det_W = self.efficient_inverse(z, self.weight[..., 0].inverse().unsqueeze(-1))
             z.storage().resize_(0)
             return x, log_det_W
         else:
-            weight = self.weight.squeeze().inverse()
+            weight = self.weight[..., 0].inverse()
             *_, n_of_groups = z.shape
             log_det_W = n_of_groups * weight.slogdet()[1]  # should fix nan logdet
             x = F.conv1d(z, weight.unsqueeze(-1))
@@ -90,15 +90,10 @@ class AffineCouplingFunc(Function):
 
             log_s, t = F(xa, y)
             zb = xb * log_s.exp() + t
-            #xb.set_()
-            #del xb
             za = xa
             z = torch.cat((za, zb), 1)
-            #za.set_()
-            #zb.set_()
-            #del za, zb
 
-        #print('affine forward out', z[0, -1, :10])
+        # print('affine forward out', z[0, -1, :10])
         ctx.save_for_backward(x.data, y, z)
         return z, log_s
 
@@ -106,8 +101,7 @@ class AffineCouplingFunc(Function):
     def backward(ctx, z_grad, log_s_grad):
         F = ctx.F
         x, y, z = ctx.saved_tensors
-        #print('affine backward out', z[0, -1, :10])
-
+        # print('affine backward out', z[0, -1, :10])
 
         za, zb = z.chunk(2, 1)
         za, zb = za.contiguous(), zb.contiguous()
@@ -122,24 +116,26 @@ class AffineCouplingFunc(Function):
         with torch.no_grad():
             s = log_s.exp()
             xb = (zb - t) / s
-            xout = torch.cat((xa, xb), 1)#.contiguous()
+            xout = torch.cat((xa, xb), 1)  # .contiguous()
             x.storage().resize_(reduce(mul, xout.shape))
             x.copy_(xout)  # .detach()
-            #print('affine backward in', x[0, -1, :10])
+            # print('affine backward in', x[0, -1, :10])
 
         with set_grad_enabled(True):
-            param_list = [xa, y] + list(F.parameters())
-            dtsdxa, dy, *dw = grad(torch.cat((log_s, t), 1), param_list,
-                                   grad_outputs=torch.cat((dzb * xb * s + log_s_grad, dzb), 1))
+            param_list = [xa] + list(F.parameters())
+            if ctx.needs_input_grad[1]:
+                param_list += [y]
+            dtsdxa, *dw = grad(torch.cat((log_s, t), 1), param_list,
+                               grad_outputs=torch.cat((dzb * xb * s + log_s_grad, dzb), 1))
 
             dxa = dza + dtsdxa
             dxb = dzb * s
             dx = torch.cat((dxa, dxb), 1)
+            if ctx.needs_input_grad[1]:
+                *dw, dy = dw
+            else:
+                dy = None
 
-            # clear sub-graph
-            log_s.detach_()
-            t.detach_()
-            del log_s, t
         return (dx, dy, None) + tuple(dw)
 
 
@@ -153,13 +149,8 @@ class InvAffineCouplingFunc(Function):
 
             log_s, t = F(za, y)
             xb = (zb - t) / log_s.exp()
-            zb.set_()
-            del zb
             xa = za
             x = torch.cat((xa, xb), 1)
-            xa.set_()
-            xb.set_()
-            del xa, xb
 
         ctx.save_for_backward(z.data, y, x)
         return x, -log_s
@@ -178,27 +169,28 @@ class InvAffineCouplingFunc(Function):
             za = xa
             za.requires_grad = True
             log_s, t = F(za, y)
+            s = log_s.exp()
 
         with torch.no_grad():
-            s = log_s.exp()
             zb = xb * s + t
-            zout = torch.cat((za, zb), 1).contiguous()
+            zout = torch.cat((za, zb), 1)
             z.storage().resize_(reduce(mul, zout.shape))
-            z.set_(zout)  # .detach()
+            z.copy_(zout)
 
         with set_grad_enabled(True):
-            param_list = [za, y] + list(F.parameters())
-            dtsdza, dy, *dw = grad(torch.cat((-log_s, -t), 1), param_list,
-                                   grad_outputs=torch.cat((dxb * zb / s + log_s_grad, dxb / s), 1))
+            param_list = [za] + list(F.parameters())
+            if ctx.needs_input_grad[1]:
+                param_list += [y]
+            dtsdza, *dw = grad(torch.cat((-log_s, -t / s), 1), param_list,
+                               grad_outputs=torch.cat((dxb * zb / s.detach() + log_s_grad, dxb), 1))
 
             dza = dxa + dtsdza
-            dzb = dxb / s
+            dzb = dxb / s.detach()
             dz = torch.cat((dza, dzb), 1)
-
-            # clear sub-graph
-            log_s.detach_()
-            t.detach_()
-            del log_s, t
+            if ctx.needs_input_grad[1]:
+                *dw, dy = dw
+            else:
+                dy = None
         return (dz, dy, None) + tuple(dw)
 
 
@@ -211,7 +203,7 @@ class Invertible1x1Func(Function):
             log_det_W *= n_of_groups
             z = F.conv1d(x, weight)
 
-        #print('1x1 forward out', z[0, -1, :10])
+        # print('1x1 forward out', z[0, -1, :10])
         ctx.save_for_backward(x.data, weight, z)
         return z, log_det_W
 
@@ -219,7 +211,7 @@ class Invertible1x1Func(Function):
     def backward(ctx, z_grad, log_det_W_grad):
         x, weight, z = ctx.saved_tensors
         *_, n_of_groups = z.shape
-        #print('1x1 backward out', z[0, -1, :10])
+        # print('1x1 backward out', z[0, -1, :10])
 
         with torch.no_grad():
             inv_weight = weight.squeeze().inverse()
@@ -237,10 +229,10 @@ class Invertible1x1Func(Function):
 
 
 if __name__ == '__main__':
-    x = torch.randn(10, 100, 100)
-    conv1 = InvertibleConv1x1(100, False)
+    x = torch.randn(100, 100, 100).cuda()
+    conv1 = InvertibleConv1x1(100, False).cuda()
     # conv1.weight.data.normal_()
-    conv2 = InvertibleConv1x1(100, True)
+    conv2 = InvertibleConv1x1(100, True).cuda()
     conv2.weight.data.copy_(conv1.weight.data)
     y1, log1 = conv1.inverse(x)
     y2, log2 = conv2.inverse(x.clone())
