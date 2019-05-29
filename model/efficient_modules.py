@@ -13,8 +13,8 @@ class InvertibleConv1x1(nn.Conv1d):
         W = torch.randn(c, c).qr()[0]
         self.weight.data = W[..., None]
         if memory_efficient:
-            self.efficient_forward = Invertible1x1Func.apply
-            self.efficient_inverse = Invertible1x1Func.apply
+            self.efficient_forward = Conv1x1Func.apply
+            self.efficient_inverse = InvConv1x1Func.apply
 
     def forward(self, x):
         if hasattr(self, 'efficient_forward'):
@@ -29,14 +29,14 @@ class InvertibleConv1x1(nn.Conv1d):
 
     def inverse(self, z):
         if hasattr(self, 'efficient_inverse'):
-            x, log_det_W = self.efficient_inverse(z, self.weight[..., 0].inverse().unsqueeze(-1))
+            x, log_det_W = self.efficient_inverse(z, self.weight)
             z.storage().resize_(0)
             return x, log_det_W
         else:
-            weight = self.weight[..., 0].inverse()
+            weight = self.weight.squeeze()
             *_, n_of_groups = z.shape
-            log_det_W = n_of_groups * weight.slogdet()[1]  # should fix nan logdet
-            x = F.conv1d(z, weight.unsqueeze(-1))
+            log_det_W = -n_of_groups * weight.slogdet()[1]  # should fix nan logdet
+            x = F.conv1d(z, weight.inverse().unsqueeze(-1))
             return x, log_det_W
 
 
@@ -194,7 +194,7 @@ class InvAffineCouplingFunc(Function):
         return (dz, dy, None) + tuple(dw)
 
 
-class Invertible1x1Func(Function):
+class Conv1x1Func(Function):
     @staticmethod
     def forward(ctx, x, weight):
         with torch.no_grad():
@@ -226,6 +226,42 @@ class Invertible1x1Func(Function):
             dw += inv_weight.t() * log_det_W_grad * n_of_groups
 
         return dx, dw.unsqueeze(-1)
+
+
+class InvConv1x1Func(Function):
+    @staticmethod
+    def forward(ctx, x, inv_weight):
+        with torch.no_grad():
+            sqr_inv_weight = inv_weight.squeeze()
+            *_, n_of_groups = x.shape
+            log_det_W = -sqr_inv_weight.slogdet()[1]
+            log_det_W *= n_of_groups
+            z = F.conv1d(x, sqr_inv_weight.inverse().unsqueeze(-1))
+
+        ctx.save_for_backward(x.data, inv_weight, z)
+        return z, log_det_W
+
+    @staticmethod
+    def backward(ctx, z_grad, log_det_W_grad):
+        x, inv_weight, z = ctx.saved_tensors
+        *_, n_of_groups = z.shape
+        # print('1x1 backward out', z[0, -1, :10])
+
+        with torch.no_grad():
+            xout = F.conv1d(z, inv_weight)
+
+            x.storage().resize_(reduce(mul, xout.shape))
+            x.copy_(xout)
+
+            inv_weight = inv_weight.squeeze()
+            weight = inv_weight.inverse()
+            dx = F.conv1d(z_grad, weight.t().unsqueeze(-1))
+            dw = z_grad.transpose(0, 1).contiguous().view(weight.shape[0], -1) @ xout.transpose(1, 2).contiguous().view(
+                -1, weight.shape[1])
+            dinvw = - weight.t() @ dw @ weight.t()
+            dinvw -= weight.t() * log_det_W_grad * n_of_groups
+
+        return dx, dinvw.unsqueeze(-1)
 
 
 if __name__ == '__main__':
