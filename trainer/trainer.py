@@ -30,7 +30,7 @@ class Trainer(BaseTrainer):
             data = data.to(self.device)
 
             self.optimizer.zero_grad()
-            output = self.model(data)
+            *output, _ = self.model(data)
             loss = self.loss(*output)
             loss.backward()
             self.optimizer.step()

@@ -8,8 +8,8 @@ class WaveGlowLoss(torch.nn.Module):
         self.mean = elementwise_mean
 
     def forward(self, z, logdet):
-        loss = 0.5 * z.pow(2).sum((1, 2)) / self.sigma2 - logdet
+        loss = 0.5 * z.pow(2).sum(1) / self.sigma2 - logdet
         loss = loss.mean()
         if self.mean:
-            loss = loss / (z.size(1) * z.size(2))
+            loss = loss / z.size(1)
         return loss

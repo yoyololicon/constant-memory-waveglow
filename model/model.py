@@ -104,6 +104,7 @@ class WaveGlow(BaseModel):
                  window_size,
                  hop_size,
                  n_mels,
+                 memory_efficient,
                  **kwargs):
         super().__init__()
         self.flows = flows
@@ -131,9 +132,9 @@ class WaveGlow(BaseModel):
             if k % self.n_early_every == 0 and k:
                 n_remaining_channels -= n_early_size
                 self.z_split_sizes.append(n_early_size)
-            self.invconv1x1.append(InvertibleConv1x1(n_remaining_channels, memory_efficient=False))
+            self.invconv1x1.append(InvertibleConv1x1(n_remaining_channels, memory_efficient=memory_efficient))
             self.WNs.append(
-                AffineCouplingBlock(WN, memory_efficient=False, in_channels=n_remaining_channels // 2,
+                AffineCouplingBlock(WN, memory_efficient=memory_efficient, in_channels=n_remaining_channels // 2,
                                     aux_channels=n_mels, **kwargs))
         self.z_split_sizes.append(n_remaining_channels)
 
@@ -156,13 +157,9 @@ class WaveGlow(BaseModel):
     def forward(self, x, h=None):
         if h is None:
             h = self.get_mel(x)
-        h = F.pad(h, (0, 1))
-        # y = F.interpolate(h, size=((h.size(2) - 1) * self.upsample_factor + 1,), mode='linear')
-        y = self.upsampler(h)
+        y = self._upsample_h(h)
 
-        batch_dim, n_mels, group_steps = y.size()
-        # y = y.view(batch_dim, n_mels, -1, self.n_group).transpose(2, 3).contiguous().view(batch_dim,
-        #                                                                                  n_mels * self.n_group, -1)
+        batch_dim, n_mels, group_steps = y.shape
         x = x.view(batch_dim, -1, self.n_group).transpose(1, 2)
         assert x.size(2) <= y.size(2)
         y = y[..., :x.size(2)]
@@ -187,34 +184,50 @@ class WaveGlow(BaseModel):
 
         assert split_sections[1] == self.z_split_sizes[-1]
         output_audio.append(x)
-        return torch.cat(output_audio, 1), logdet
+        return torch.cat(output_audio, 1).transpose(1, 2).contiguous().view(batch_dim, -1), logdet, h
+
+    def _upsample_h(self, h):
+        h = F.pad(h, (0, 1))
+        # y = F.interpolate(h, size=((h.size(2) - 1) * self.upsample_factor + 1,), mode='linear')
+        return self.upsampler(h)
+
+    def inverse(self, z, h):
+        y = self._upsample_h(h)
+        batch_dim, n_mels, group_steps = y.shape
+        z = z.view(batch_dim, -1, self.n_group).transpose(1, 2)
+        assert z.size(2) <= y.size(2)
+        y = y[..., :z.size(2)]
+
+        *remained_z, z = z.split(self.z_split_sizes, 1)
+
+        for k, invconv, affine_coup in zip(range(self.flows - 1, -1, -1), self.invconv1x1[::-1], self.WNs[::-1]):
+
+            z, log_s = affine_coup.inverse(z, y)
+            z, log_det_W = invconv.inverse(z)
+
+            if k == self.flows - 1:
+                logdet += log_det_W + log_s.sum((1, 2))
+            else:
+                logdet = log_det_W + log_s.sum((1, 2))
+
+            if k % self.n_early_every == 0 and k:
+                z = torch.cat((remained_z.pop(), z), 1)
+
+        z = z.transpose(1, 2).contiguous().view(batch_dim, -1)
+        return z, logdet
 
     @torch.no_grad()
     def infer(self, h, sigma=1.):
         if len(h.shape) == 2:
             h = h[None, ...]
-        # y = F.interpolate(h, size=((h.size(2) - 1) * self.upsample_factor + 1,), mode='linear')
-        y = self.upsampler(h)
-        # y = y[..., :y.size(2) // self.n_group * self.n_group]
-        batch_dim, n_mels, group_steps = y.size()
-        # y = y.view(batch_dim, n_mels, -1, self.n_group).transpose(2, 3).contiguous().view(batch_dim,
-        #                                                                                  n_mels * self.n_group, -1)
-        z = torch.randn(batch_dim, self.n_group, group_steps, dtype=y.dtype, device=y.device).mul_(sigma)
-        *remained_z, z = z.split(self.z_split_sizes, 1)
 
-        for k, invconv, WN in zip(np.arange(self.flows)[::-1], self.invconv1x1[::-1], self.WNs[::-1]):
-            n_half = z.size(1) // 2
-            log_s, t = WN(z[:, :n_half], y)
-            z[:, n_half:] -= t
-            z[:, n_half:] /= log_s.exp()
+        batch_dim, n_mels, steps = h.shape
+        samples = steps * self.hop_size
 
-            z[:] = invconv.inverse(z)
-
-            if k % self.n_early_every == 0 and k:
-                z = torch.cat((remained_z.pop(), z), 1)
-
-        x = z.transpose(1, 2).contiguous().view(batch_dim, -1).squeeze()
-        return x
+        z = h.new_empty((batch_dim, samples)).normal_(std=sigma)
+        #z = torch.randn(batch_dim, self.n_group, group_steps, dtype=y.dtype, device=y.device).mul_(sigma)
+        x, _ = self.inverse(z, h)
+        return x.squeeze()
 
 
 if __name__ == '__main__':
