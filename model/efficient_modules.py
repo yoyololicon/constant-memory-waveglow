@@ -93,7 +93,6 @@ class AffineCouplingFunc(Function):
             za = xa
             z = torch.cat((za, zb), 1)
 
-        # print('affine forward out', z[0, -1, :10])
         ctx.save_for_backward(x.data, y, z)
         return z, log_s
 
@@ -101,7 +100,6 @@ class AffineCouplingFunc(Function):
     def backward(ctx, z_grad, log_s_grad):
         F = ctx.F
         x, y, z = ctx.saved_tensors
-        # print('affine backward out', z[0, -1, :10])
 
         za, zb = z.chunk(2, 1)
         za, zb = za.contiguous(), zb.contiguous()
@@ -119,7 +117,6 @@ class AffineCouplingFunc(Function):
             xout = torch.cat((xa, xb), 1)  # .contiguous()
             x.storage().resize_(reduce(mul, xout.shape))
             x.copy_(xout)  # .detach()
-            # print('affine backward in', x[0, -1, :10])
 
         with set_grad_enabled(True):
             param_list = [xa] + list(F.parameters())
@@ -203,7 +200,6 @@ class Conv1x1Func(Function):
             log_det_W *= n_of_groups
             z = F.conv1d(x, weight)
 
-        # print('1x1 forward out', z[0, -1, :10])
         ctx.save_for_backward(x.data, weight, z)
         return z, log_det_W
 
@@ -211,7 +207,6 @@ class Conv1x1Func(Function):
     def backward(ctx, z_grad, log_det_W_grad):
         x, weight, z = ctx.saved_tensors
         *_, n_of_groups = z.shape
-        # print('1x1 backward out', z[0, -1, :10])
 
         with torch.no_grad():
             inv_weight = weight.squeeze().inverse()
@@ -245,7 +240,6 @@ class InvConv1x1Func(Function):
     def backward(ctx, z_grad, log_det_W_grad):
         x, inv_weight, z = ctx.saved_tensors
         *_, n_of_groups = z.shape
-        # print('1x1 backward out', z[0, -1, :10])
 
         with torch.no_grad():
             xout = F.conv1d(z, inv_weight)
@@ -254,12 +248,12 @@ class InvConv1x1Func(Function):
             x.copy_(xout)
 
             inv_weight = inv_weight.squeeze()
-            weight = inv_weight.inverse()
-            dx = F.conv1d(z_grad, weight.t().unsqueeze(-1))
-            dw = z_grad.transpose(0, 1).contiguous().view(weight.shape[0], -1) @ xout.transpose(1, 2).contiguous().view(
-                -1, weight.shape[1])
-            dinvw = - weight.t() @ dw @ weight.t()
-            dinvw -= weight.t() * log_det_W_grad * n_of_groups
+            weight_T = inv_weight.inverse().t()
+            dx = F.conv1d(z_grad, weight_T.unsqueeze(-1))
+            dw = z_grad.transpose(0, 1).contiguous().view(weight_T.shape[0], -1) @ xout.transpose(1, 2).contiguous().view(
+                -1, weight_T.shape[1])
+            dinvw = - weight_T @ dw @ weight_T
+            dinvw -= weight_T * log_det_W_grad * n_of_groups
 
         return dx, dinvw.unsqueeze(-1)
 

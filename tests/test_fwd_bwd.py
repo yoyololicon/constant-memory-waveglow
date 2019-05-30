@@ -13,12 +13,12 @@ def set_seed(seed):
     torch.manual_seed(seed)
 
 
-def test_conv1x1_fwd_bwd():
-    in_size = 10
-    length = 1000
-
-    data = np.random.randn(2, in_size, length)
-    weights = InvertibleConv1x1(in_size).state_dict()
+@pytest.mark.parametrize('batch', list(2 ** i for i in range(6)))
+@pytest.mark.parametrize('channels', list(2 ** i for i in range(1, 4)))
+@pytest.mark.parametrize('length', [16000])
+def test_conv1x1_fwd_bwd(batch, channels, length):
+    data = torch.rand(batch, channels, length) * 2 - 1
+    weights = InvertibleConv1x1(channels).state_dict()
 
     loss_func = WaveGlowLoss().cuda()
 
@@ -27,16 +27,13 @@ def test_conv1x1_fwd_bwd():
         for bwd in [False, True]:
             impl_out, impl_grad = [], []
             for keep_input in [True, False]:
-                model = InvertibleConv1x1(in_size, not keep_input)
+                model = InvertibleConv1x1(channels, not keep_input)
                 model.load_state_dict(weights)
-                s_grad = [p.data.numpy().copy() for p in model.parameters()]
-                x = torch.Tensor(data.copy()).cuda()
-
                 model = model.cuda()
                 model.train()
+                model.zero_grad()
 
-                optim = torch.optim.Adam(model.parameters())
-                optim.zero_grad()
+                x = data.cuda()
 
                 if bwd:
                     xin = x.clone()
@@ -49,8 +46,8 @@ def test_conv1x1_fwd_bwd():
                     yrev = y.clone()
                     xinv, log2 = model.inverse(yrev)
 
-                assert log1.item() == -log2.item()
-                loss = loss_func(y.view(2, -1), log1)
+                # assert log1.item() == -log2.item()
+                loss = loss_func(y.view(batch, -1), log1)
 
                 if keep_input:
                     assert xin.data.shape == x.shape
@@ -65,38 +62,38 @@ def test_conv1x1_fwd_bwd():
                            or yrev.storage().size() == 0
 
                 loss.backward()
-                optim.step()
-
-                x = x.cpu()
-                y = y.cpu()
-                xinv = xinv.cpu()
 
                 assert y.shape == x.shape
-                assert x.data.numpy().shape == data.shape
-                assert np.allclose(x.data.numpy(), data)
-                print(x[0, 0, :10], xinv[0, 0, :10])
-                assert np.allclose(x.data.numpy(), xinv.data.numpy(), atol=1e-6)
+                assert x.shape == data.shape
+                assert torch.allclose(x.cpu(), data)
+                print(torch.abs(x - xinv).max().item())
+                assert torch.allclose(x, xinv, atol=1e-6, rtol=0)
 
-                impl_out.append(y.data.numpy().copy())
-                impl_grad.append([p.data.cpu().numpy().copy() for p in model.parameters()])
-                assert not np.allclose(s_grad[0], impl_grad[-1][0])
+                impl_out.append(y.detach().cpu())
+                impl_grad.append([p.grad.cpu() for p in model.parameters()])
 
             for i in range(len(impl_grad) // 2):
-                print(impl_grad[i * 2][0].reshape(-1)[:5], impl_grad[i * 2 + 1][0].reshape(-1)[:5])
-                assert np.allclose(impl_grad[i * 2][0], impl_grad[i * 2 + 1][0])
-                assert np.allclose(impl_out[2 * i], impl_out[2 * i + 1])
+                print(impl_grad[i * 2][0].view(-1)[:5], impl_grad[i * 2 + 1][0].view(-1)[:5])
+                assert torch.allclose(impl_grad[i * 2][0], impl_grad[i * 2 + 1][0], atol=1e-6, rtol=0)
+                assert torch.allclose(impl_out[2 * i], impl_out[2 * i + 1])
 
 
-def test_affine_fwd_bwd():
-    in_size = 10
-    aux_size = 40
-    length = 1000
+@pytest.mark.parametrize('batch', [2])
+@pytest.mark.parametrize('channels', list(2 ** i for i in range(4, 6)))
+@pytest.mark.parametrize('WN_channels', [64])
+@pytest.mark.parametrize('depth', list(range(1, 5)))
+@pytest.mark.parametrize('aux_channels', [20, 40])
+@pytest.mark.parametrize('length', [12000])
+def test_affine_fwd_bwd(batch, channels, WN_channels, depth, aux_channels, length):
+    data = torch.rand(batch, channels, length) * 2 - 1
+    condition = torch.randn(batch, aux_channels, length)
 
-    data = np.random.randn(2, in_size, length)
-    condition = np.random.randn(2, aux_size, length)
-
-    weights = AffineCouplingBlock(WN, False, in_channels=in_size // 2, aux_channels=aux_size,
-                                  zero_init=False).state_dict()
+    weights = AffineCouplingBlock(WN, False, in_channels=channels // 2, aux_channels=aux_channels,
+                                  zero_init=False,
+                                  dilation_channels=WN_channels,
+                                  residual_channels=WN_channels,
+                                  skip_channels=WN_channels,
+                                  depth=depth).state_dict()
 
     loss_func = WaveGlowLoss().cuda()
 
@@ -105,18 +102,19 @@ def test_affine_fwd_bwd():
         for bwd in [False, True]:
             impl_out, impl_grad = [], []
             for keep_input in [True, False]:
-                model = AffineCouplingBlock(WN, not keep_input, in_channels=in_size // 2, aux_channels=aux_size,
-                                            zero_init=False)
+                model = AffineCouplingBlock(WN, not keep_input, in_channels=channels // 2, aux_channels=aux_channels,
+                                            zero_init=False,
+                                            dilation_channels=WN_channels,
+                                            residual_channels=WN_channels,
+                                            skip_channels=WN_channels,
+                                            depth=depth)
                 model.load_state_dict(weights)
-                s_grad = [p.data.numpy().copy() for p in model.parameters()]
-                x = torch.Tensor(data.copy()).cuda()
-                h = torch.Tensor(condition.copy()).cuda()
-
                 model = model.cuda()
                 model.train()
+                model.zero_grad()
 
-                optim = torch.optim.Adam(model.parameters())
-                optim.zero_grad()
+                x = data.cuda()
+                h = condition.cuda()
 
                 if bwd:
                     xin = x.clone()
@@ -143,23 +141,20 @@ def test_affine_fwd_bwd():
                     assert len(yrev.data.shape) == 0 \
                            or (len(yrev.data.shape) == 0 and yrev.data.shape[0] == 0) \
                            or yrev.storage().size() == 0
+                    assert h.shape == condition.shape
+                    assert torch.allclose(h.cpu(), condition)
 
                 loss.backward()
-                optim.step()
-
-                x = x.cpu()
-                y = y.cpu()
-                xinv = xinv.cpu()
 
                 assert y.shape == x.shape
-                assert x.data.numpy().shape == data.shape
-                assert np.allclose(x.data.numpy(), data)
-                assert np.allclose(x.data.numpy(), xinv.data.numpy())
+                assert x.data.shape == data.shape
+                assert torch.allclose(x.cpu(), data)
+                print(torch.abs(x - xinv).max().item())
+                assert torch.allclose(x, xinv, atol=1e-7)
 
-                impl_out.append(y.data.numpy().copy())
-                impl_grad.append([p.data.cpu().numpy().copy() for p in model.parameters()])
-                assert not np.allclose(s_grad[0], impl_grad[-1][0])
+                impl_out.append(y.cpu().detach())
+                impl_grad.append([p.grad.cpu() for p in model.parameters()])
 
             for i in range(len(impl_grad) // 2):
-                assert np.allclose(impl_grad[i * 2][0], impl_grad[i * 2 + 1][0])
-                assert np.allclose(impl_out[2 * i], impl_out[2 * i + 1])
+                assert torch.allclose(impl_grad[i * 2][0], impl_grad[i * 2 + 1][0])
+                assert torch.allclose(impl_out[2 * i], impl_out[2 * i + 1])
