@@ -250,30 +250,9 @@ class InvConv1x1Func(Function):
             inv_weight = inv_weight.squeeze()
             weight_T = inv_weight.inverse().t()
             dx = F.conv1d(z_grad, weight_T.unsqueeze(-1))
-            dw = z_grad.transpose(0, 1).contiguous().view(weight_T.shape[0], -1) @ xout.transpose(1, 2).contiguous().view(
-                -1, weight_T.shape[1])
+            dw = z_grad.transpose(0, 1).contiguous().view(weight_T.shape[0], -1) @ \
+                 xout.transpose(1, 2).contiguous().view(-1, weight_T.shape[1])
             dinvw = - weight_T @ dw @ weight_T
             dinvw -= weight_T * log_det_W_grad * n_of_groups
 
         return dx, dinvw.unsqueeze(-1)
-
-
-if __name__ == '__main__':
-    x = torch.randn(100, 100, 100).cuda()
-    conv1 = InvertibleConv1x1(100, False).cuda()
-    # conv1.weight.data.normal_()
-    conv2 = InvertibleConv1x1(100, True).cuda()
-    conv2.weight.data.copy_(conv1.weight.data)
-    y1, log1 = conv1.inverse(x)
-    y2, log2 = conv2.inverse(x.clone())
-    # log2 = log1 = 0
-    # print(y1, y2, log1.item(), log2.item())
-    y1.sum().add(log1).backward()
-    y2.sum().add(log2).backward()
-    # print(conv1.weight.grad, conv2.weight.grad)
-    print((conv1.weight.grad - conv2.weight.grad).pow(2).mean().sqrt())
-
-    # x, y = torch.randn(1, 10, 100).double(), torch.randn(1, 2, 100).double()
-    # conv = AffineCouplingBlock(10, 2).double()
-    # x.requires_grad = True
-    # print(gradcheck(conv, (x, y)))

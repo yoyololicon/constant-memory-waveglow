@@ -15,7 +15,7 @@ def set_seed(seed):
 
 @pytest.mark.parametrize('batch', list(2 ** i for i in range(6)))
 @pytest.mark.parametrize('channels', list(2 ** i for i in range(1, 4)))
-@pytest.mark.parametrize('length', [16000])
+@pytest.mark.parametrize('length', [2000])
 def test_conv1x1_fwd_bwd(batch, channels, length):
     data = torch.rand(batch, channels, length) * 2 - 1
     weights = InvertibleConv1x1(channels).state_dict()
@@ -80,10 +80,10 @@ def test_conv1x1_fwd_bwd(batch, channels, length):
 
 @pytest.mark.parametrize('batch', [2])
 @pytest.mark.parametrize('channels', list(2 ** i for i in range(4, 6)))
-@pytest.mark.parametrize('WN_channels', [64])
+@pytest.mark.parametrize('WN_channels', [128])
 @pytest.mark.parametrize('depth', list(range(1, 5)))
 @pytest.mark.parametrize('aux_channels', [20, 40])
-@pytest.mark.parametrize('length', [12000])
+@pytest.mark.parametrize('length', [4000])
 def test_affine_fwd_bwd(batch, channels, WN_channels, depth, aux_channels, length):
     data = torch.rand(batch, channels, length) * 2 - 1
     condition = torch.randn(batch, aux_channels, length)
