@@ -158,3 +158,43 @@ def test_affine_fwd_bwd(batch, channels, WN_channels, depth, aux_channels, lengt
             for i in range(len(impl_grad) // 2):
                 assert torch.allclose(impl_grad[i * 2][0], impl_grad[i * 2 + 1][0])
                 assert torch.allclose(impl_out[2 * i], impl_out[2 * i + 1])
+
+
+@pytest.mark.parametrize('batch', list(2 ** i for i in range(6)))
+@pytest.mark.parametrize('channels', list(2 ** i for i in range(1, 4)))
+@pytest.mark.parametrize('length', [2000])
+def test_complx_chained(batch, channels, length):
+    data = torch.rand(batch, channels, length) * 2 - 1
+
+    model1 = nn.ModuleList([InvertibleConv1x1(channels, True),
+                            InvertibleConv1x1(channels, False),
+                            InvertibleConv1x1(channels, True)])
+    model2 = nn.ModuleList([InvertibleConv1x1(channels, False),
+                            InvertibleConv1x1(channels, True),
+                            InvertibleConv1x1(channels, False)])
+    model2.load_state_dict(model1.state_dict())
+    loss_func = WaveGlowLoss().cuda()
+
+    for seed in range(10):
+        set_seed(seed)
+        impl_grad = []
+        for model in [model1, model2]:
+            model = model.cuda()
+            model.train()
+            model.zero_grad()
+
+            x = data.cuda()
+
+            xin = x.clone()
+            logdet = 0
+            for layer in model:
+                xin, _ = layer.inverse(xin)
+                logdet = logdet + _
+
+            loss = loss_func(xin.view(batch, -1), logdet)
+
+            loss.backward()
+            impl_grad.append([p.grad.cpu() for p in model.parameters()])
+
+        for p_grad1, p_grad2 in zip(impl_grad[0], impl_grad[1]):
+            assert torch.allclose(p_grad1, p_grad2, atol=1e-7, rtol=0)
