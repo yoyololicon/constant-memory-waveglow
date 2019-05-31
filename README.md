@@ -2,7 +2,7 @@
 
 A PyTorch implementation of
 [WaveGlow: A Flow-based Generative Network for Speech Synthesis](https://arxiv.org/abs/1811.00002)
-using constant memroy method described in [Training Glow with Constant
+using constant memory method described in [Training Glow with Constant
 Memory Cost](http://bayesiandeeplearning.org/2018/papers/37.pdf).
 
 The model implementation details are slightly differed from the
