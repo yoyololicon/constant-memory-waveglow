@@ -39,10 +39,10 @@ class BaseTrainer:
         self.writer = WriterTensorboardX(writer_dir, self.logger, config['visualization']['tensorboardX'])
 
         # Save configuration file into checkpoint directory:
-        #ensure_dir(self.checkpoint_dir)
+        ensure_dir(self.checkpoint_dir)
         config_save_path = os.path.join(self.checkpoint_dir, 'config.json')
-        #with open(config_save_path, 'w') as handle:
-        #    json.dump(config, handle, indent=4, sort_keys=False)
+        with open(config_save_path, 'w') as handle:
+            json.dump(config, handle, indent=4, sort_keys=False)
 
         if resume:
             self._resume_checkpoint(resume)
@@ -71,7 +71,6 @@ class BaseTrainer:
         """
         raise NotImplementedError
 
-
     def _save_checkpoint(self, step):
         """
         Saving checkpoints
@@ -99,7 +98,7 @@ class BaseTrainer:
         self.logger.info("Loading checkpoint: {} ...".format(resume_path))
         checkpoint = torch.load(resume_path)
         self.start_step = checkpoint['step']
-        #self.monitor_best = checkpoint['monitor_best']
+        # self.monitor_best = checkpoint['monitor_best']
 
         # load architecture params from checkpoint.
         if checkpoint['config']['arch'] != self.config['arch']:

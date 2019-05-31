@@ -30,7 +30,7 @@ class Trainer(BaseTrainer):
             data = data.to(self.device)
 
             self.optimizer.zero_grad()
-            *output, _ = self.model(data)
+            *output, mels = self.model(data)
             loss = self.loss(*output)
             loss.backward()
             self.optimizer.step()
@@ -44,7 +44,13 @@ class Trainer(BaseTrainer):
                     self.steps,
                     100.0 * step / self.steps,
                     loss.item()))
-                self.writer.add_image('input', make_grid(data.cpu(), nrow=8, normalize=True))
+                #self.writer.add_image('input', make_grid(data.cpu(), nrow=8, normalize=True))
+                self.writer.add_image('input mel-spectrum', mels[0].cpu(), dataformats='HW')
+                with torch.no_grad():
+                    z = torch.randn_like(output[0][:1]) * output[0].std()
+                    x, _ = self.model.inverse(z, mels[:1])
+                    x = torch.clamp(x, -1, 1)
+                self.writer.add_audio('reconstruct audio', x.cpu(), sample_rate=self.model.sr)
 
             if self.lr_scheduler is not None:
                 self.lr_scheduler.step()

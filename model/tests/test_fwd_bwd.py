@@ -17,13 +17,12 @@ def set_seed(seed):
 @pytest.mark.parametrize('channels', list(2 ** i for i in range(1, 4)))
 @pytest.mark.parametrize('length', [2000])
 def test_conv1x1_fwd_bwd(batch, channels, length):
-    data = torch.rand(batch, channels, length) * 2 - 1
     weights = InvertibleConv1x1(channels).state_dict()
-
     loss_func = WaveGlowLoss().cuda()
 
     for seed in range(10):
         set_seed(seed)
+        data = torch.rand(batch, channels, length) * 2 - 1
         for bwd in [False, True]:
             impl_out, impl_grad = [], []
             for keep_input in [True, False]:
@@ -72,10 +71,9 @@ def test_conv1x1_fwd_bwd(batch, channels, length):
                 impl_out.append(y.detach().cpu())
                 impl_grad.append([p.grad.cpu() for p in model.parameters()])
 
-            for i in range(len(impl_grad) // 2):
-                print(impl_grad[i * 2][0].view(-1)[:5], impl_grad[i * 2 + 1][0].view(-1)[:5])
-                assert torch.allclose(impl_grad[i * 2][0], impl_grad[i * 2 + 1][0], atol=1e-6, rtol=0)
-                assert torch.allclose(impl_out[2 * i], impl_out[2 * i + 1])
+            for p_grad1, p_grad2 in zip(impl_grad[0], impl_grad[1]):
+                assert torch.allclose(p_grad1, p_grad2, atol=5e-7, rtol=0)
+            assert torch.allclose(impl_out[0], impl_out[1])
 
 
 @pytest.mark.parametrize('batch', [2])
@@ -85,8 +83,7 @@ def test_conv1x1_fwd_bwd(batch, channels, length):
 @pytest.mark.parametrize('aux_channels', [20, 40])
 @pytest.mark.parametrize('length', [4000])
 def test_affine_fwd_bwd(batch, channels, WN_channels, depth, aux_channels, length):
-    data = torch.rand(batch, channels, length) * 2 - 1
-    condition = torch.randn(batch, aux_channels, length)
+
 
     weights = AffineCouplingBlock(WN, False, in_channels=channels // 2, aux_channels=aux_channels,
                                   zero_init=False,
@@ -99,6 +96,8 @@ def test_affine_fwd_bwd(batch, channels, WN_channels, depth, aux_channels, lengt
 
     for seed in range(10):
         set_seed(seed)
+        data = torch.rand(batch, channels, length) * 2 - 1
+        condition = torch.randn(batch, aux_channels, length)
         for bwd in [False, True]:
             impl_out, impl_grad = [], []
             for keep_input in [True, False]:
@@ -155,16 +154,16 @@ def test_affine_fwd_bwd(batch, channels, WN_channels, depth, aux_channels, lengt
                 impl_out.append(y.cpu().detach())
                 impl_grad.append([p.grad.cpu() for p in model.parameters()])
 
-            for i in range(len(impl_grad) // 2):
-                assert torch.allclose(impl_grad[i * 2][0], impl_grad[i * 2 + 1][0])
-                assert torch.allclose(impl_out[2 * i], impl_out[2 * i + 1])
+            for p_grad1, p_grad2 in zip(impl_grad[0], impl_grad[1]):
+                assert torch.allclose(p_grad1, p_grad2)
+            assert torch.allclose(impl_out[0], impl_out[1])
 
 
 @pytest.mark.parametrize('batch', list(2 ** i for i in range(6)))
 @pytest.mark.parametrize('channels', list(2 ** i for i in range(1, 4)))
 @pytest.mark.parametrize('length', [2000])
 def test_complx_chained(batch, channels, length):
-    data = torch.rand(batch, channels, length) * 2 - 1
+
 
     model1 = nn.ModuleList([InvertibleConv1x1(channels, True),
                             InvertibleConv1x1(channels, False),
@@ -177,6 +176,7 @@ def test_complx_chained(batch, channels, length):
 
     for seed in range(10):
         set_seed(seed)
+        data = torch.rand(batch, channels, length) * 2 - 1
         impl_grad = []
         for model in [model1, model2]:
             model = model.cuda()
@@ -197,4 +197,4 @@ def test_complx_chained(batch, channels, length):
             impl_grad.append([p.grad.cpu() for p in model.parameters()])
 
         for p_grad1, p_grad2 in zip(impl_grad[0], impl_grad[1]):
-            assert torch.allclose(p_grad1, p_grad2, atol=1e-7, rtol=0)
+            assert torch.allclose(p_grad1, p_grad2, atol=5e-7, rtol=0)
