@@ -1,9 +1,14 @@
-# WaveGlow
+# Constant Memory WaveGlow
 
-Another PyTorch implementation of [WaveGlow: A Flow-based Generative Network for Speech Synthesis](https://arxiv.org/abs/1811.00002).
+A PyTorch implementation of
+[WaveGlow: A Flow-based Generative Network for Speech Synthesis](https://arxiv.org/abs/1811.00002)
+using constant memroy method described in [Training Glow with Constant
+Memory Cost](http://bayesiandeeplearning.org/2018/papers/37.pdf).
 
-Most of the codes are based on NVIDIA [official implementation](https://github.com/NVIDIA/waveglow), and the project structure 
-is brought from [pytorch-template](https://github.com/victoresque/pytorch-template).
+The model implementation details are slightly differed from the
+[official implementation](https://github.com/NVIDIA/waveglow) based on
+personal favor, and the project structure is brought from
+[pytorch-template](https://github.com/victoresque/pytorch-template).
 
 ## Quick Start
 
@@ -28,6 +33,9 @@ then your are good to go. The mel-spectrogram will be computed on the fly.
 python train.py -c config.json
 ```
 
+## Memory Usage Comparison
+
+Coming soon.
 
 ## Result
 

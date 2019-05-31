@@ -49,7 +49,7 @@ class Trainer(BaseTrainer):
                 with torch.no_grad():
                     z = torch.randn_like(output[0][:1]) * output[0].std()
                     x, _ = self.model.inverse(z, mels[:1])
-                    x = torch.clamp(x, -1, 1)
+                    torch.clamp(x, -1, 1, out=x)
                 self.writer.add_audio('reconstruct audio', x.cpu(), sample_rate=self.model.sr)
 
             if self.lr_scheduler is not None:

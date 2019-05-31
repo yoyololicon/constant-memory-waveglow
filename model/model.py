@@ -123,8 +123,8 @@ class WaveGlow(BaseModel):
 
         self.upsample_factor = hop_size // n_group
         sub_win_size = window_size // n_group
-        self.upsampler = nn.ConvTranspose1d(n_mels, n_mels, sub_win_size, self.upsample_factor,
-                                            padding=sub_win_size // 2, bias=False)
+        # self.upsampler = nn.ConvTranspose1d(n_mels, n_mels, sub_win_size, self.upsample_factor,
+        #                                    padding=sub_win_size // 2, bias=False)
 
         self.invconv1x1 = nn.ModuleList()
         self.WNs = nn.ModuleList()
@@ -193,8 +193,8 @@ class WaveGlow(BaseModel):
 
     def _upsample_h(self, h):
         h = F.pad(h, (0, 1))
-        # y = F.interpolate(h, size=((h.size(2) - 1) * self.upsample_factor + 1,), mode='linear')
-        return self.upsampler(h)
+        return F.interpolate(h, size=((h.size(2) - 1) * self.upsample_factor + 1,), mode='linear')
+        # return self.upsampler(h)
 
     def inverse(self, z, h):
         y = self._upsample_h(h)
@@ -204,6 +204,11 @@ class WaveGlow(BaseModel):
         y = y[..., :z.size(2)]
 
         *remained_z, z = z.split(self.z_split_sizes, 1)
+        z = z.clone()
+        tmp = []
+        for r in remained_z:
+            tmp.append(r.clone())
+        remained_z = tmp
 
         for k, invconv, affine_coup in zip(range(self.flows - 1, -1, -1), self.invconv1x1[::-1], self.WNs[::-1]):
 
@@ -211,9 +216,9 @@ class WaveGlow(BaseModel):
             z, log_det_W = invconv.inverse(z)
 
             if k == self.flows - 1:
-                logdet += log_det_W + log_s.sum((1, 2))
-            else:
                 logdet = log_det_W + log_s.sum((1, 2))
+            else:
+                logdet += log_det_W + log_s.sum((1, 2))
 
             if k % self.n_early_every == 0 and k:
                 z = torch.cat((remained_z.pop(), z), 1)
