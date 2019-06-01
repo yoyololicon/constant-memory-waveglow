@@ -51,7 +51,7 @@ class WN(nn.Module):
                  bias=False,
                  zero_init=True):
         super().__init__()
-        dilations = radix ** torch.arange(depth)
+        dilations = 2 ** torch.arange(depth)
         self.dilations = dilations.tolist()
         self.in_chs = in_channels
         self.res_chs = residual_channels

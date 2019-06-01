@@ -103,22 +103,21 @@ class _WAVDataset(Dataset):
                 else:
                     assert f_obj.samplerate == self.sr
         self.file_lengths = np.array(self.file_lengths)
-        self.boundaries = np.cumsum(self.file_lengths)
+        self.boundaries = np.cumsum(self.file_lengths) / (self.file_lengths.sum() - 1)
 
         # normalization value based on each file
-        # will updated online
-        self.max_values = np.ones_like(self.boundaries) * 0.01
+        # will updated on the fily
+        self.max_values = np.zeros_like(self.boundaries)
 
     def __len__(self):
         return self.size
 
     def __getitem__(self, index):
-        index = random.randint(0, self.boundaries[-1] - 1)
-        index = np.digitize(index, self.boundaries)
+        index = np.digitize(random.uniform(0, 1), self.boundaries)
         f, length = self.files[index], self.file_lengths[index]
-        pos = random.randint(0, length - self.segment - 1)
+        pos = random.randint(0, length - 1)
         f.seek(pos)
-        x = f.read(self.segment, dtype='float32', always_2d=True).mean(1)
+        x = f.read(self.segment, dtype='float32', always_2d=True, fill_value=0.).mean(1)
         max_abs = np.abs(x).max()
         if max_abs > self.max_values[index]:
             self.max_values[index] = max_abs
@@ -149,7 +148,9 @@ class RandomWaveFileLoader(BaseDataLoader):
 
 
 if __name__ == '__main__':
-    loader = RandomWaveFileLoader(100, '/media/ycy/86A4D88BA4D87F5D/DataSet/LJSpeech-1.1/wavs', 64, 0, segment=16000)
+    loader = RandomWaveFileLoader(100, '/media/ycy/86A4D88BA4D87F5D/DataSet/LJSpeech-1.1/wavs', 1, 0, segment=16000)
 
+    import matplotlib.pyplot as plt
     for x in loader:
-        print(x[0, :10])
+        plt.plot(x[0].numpy())
+        plt.show()

@@ -30,13 +30,17 @@ class Trainer(BaseTrainer):
             data = data.to(self.device)
 
             self.optimizer.zero_grad()
-            *output, mels = self.model(data)
-            loss = self.loss(*output)
+            z, logdet, mels = self.model(data)
+            loss = self.loss(z, logdet)
             loss.backward()
             self.optimizer.step()
 
             self.writer.set_step(step)
             self.writer.add_scalar('loss', loss.item())
+            self.writer.add_scalar('log_determinant', logdet.mean().item())
+            self.writer.add_scalar('z_mean', z.mean().item())
+            self.writer.add_scalar('z_std', z.std().item())
+            self.writer.add_scalar('max_memory_allocated', torch.cuda.max_memory_allocated() / (1024 ** 2))
 
             if self.verbosity >= 2 and step % self.log_step == 0:
                 self.logger.info('Train Step: [{}/{} ({:.0f}%)] Loss: {:.6f}'.format(
@@ -45,12 +49,14 @@ class Trainer(BaseTrainer):
                     100.0 * step / self.steps,
                     loss.item()))
                 #self.writer.add_image('input', make_grid(data.cpu(), nrow=8, normalize=True))
-                self.writer.add_image('input mel-spectrum', mels[0].cpu(), dataformats='HW')
-                with torch.no_grad():
-                    z = torch.randn_like(output[0][:1]) * output[0].std()
-                    x, _ = self.model.inverse(z, mels[:1])
-                    torch.clamp(x, -1, 1, out=x)
-                self.writer.add_audio('reconstruct audio', x.cpu(), sample_rate=self.model.sr)
+                mel_spec = mels[0].cpu()
+                mel_spec -= mel_spec.min()
+                mel_spec /= mel_spec.max()
+                self.writer.add_image('input_mel-spectrum', mel_spec.flip(0), dataformats='HW')
+
+                x = self.model.infer(mels[0], z[0].std().item())
+                torch.clamp(x, -1, 1, out=x)
+                self.writer.add_audio('reconstruct_audio', x.cpu()[None, :], sample_rate=self.model.sr)
 
             if self.lr_scheduler is not None:
                 self.lr_scheduler.step()
