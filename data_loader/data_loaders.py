@@ -90,6 +90,7 @@ class _WAVDataset(Dataset):
                 sr = int(info_str.split('Sample Rate   : ')[1].split('\n')[0])
                 return int(data / byte_sec * sr)
 
+        print("Gathering training files ...")
         for f in tqdm(os.listdir(self.data_path)):
             if f.endswith('.wav'):
                 filename = os.path.join(self.data_path, f)
@@ -104,6 +105,10 @@ class _WAVDataset(Dataset):
         self.file_lengths = np.array(self.file_lengths)
         self.boundaries = np.cumsum(self.file_lengths)
 
+        # normalization value based on each file
+        # will updated online
+        self.max_values = np.ones_like(self.boundaries) * 0.01
+
     def __len__(self):
         return self.size
 
@@ -114,6 +119,10 @@ class _WAVDataset(Dataset):
         pos = random.randint(0, length - self.segment - 1)
         f.seek(pos)
         x = f.read(self.segment, dtype='float32', always_2d=True).mean(1)
+        max_abs = np.abs(x).max()
+        if max_abs > self.max_values[index]:
+            self.max_values[index] = max_abs
+        x /= self.max_values[index]
         return x
 
 
@@ -143,4 +152,4 @@ if __name__ == '__main__':
     loader = RandomWaveFileLoader(100, '/media/ycy/86A4D88BA4D87F5D/DataSet/LJSpeech-1.1/wavs', 64, 0, segment=16000)
 
     for x in loader:
-        print(x, x.shape)
+        print(x[0, :10])
