@@ -1,9 +1,10 @@
-from torchvision import datasets, transforms
+import soundfile as sf
 from base import BaseDataLoader
 from torch.utils.data import Dataset
 import os
 import pandas as pd
 import random
+import numpy as np
 from librosa import load
 from tqdm import tqdm
 from functools import partial
@@ -77,22 +78,42 @@ class _WAVDataset(Dataset):
 
         self.waves = []
         self.sr = None
-        for f in os.listdir(self.data_path):
+        self.files = []
+        self.file_lengths = []
+
+        def get_nframes(info_str):
+            try:
+                return int(f_obj.extra_info.split('frames  : ')[1].split('\n')[0])
+            except:
+                byte_sec = int(info_str.split('Bytes/sec     : ')[1].split('\n')[0])
+                data = int(info_str.split('data : ')[1].split('\n')[0])
+                sr = int(info_str.split('Sample Rate   : ')[1].split('\n')[0])
+                return int(data / byte_sec * sr)
+
+        for f in tqdm(os.listdir(self.data_path)):
             if f.endswith('.wav'):
-                y, sr = load(os.path.join(self.data_path, f), sr=None)
+                filename = os.path.join(self.data_path, f)
+                f_obj = sf.SoundFile(filename)
+                self.files.append(f_obj)
+                self.file_lengths.append(get_nframes(f_obj.extra_info))
+
                 if not self.sr:
-                    self.sr = sr
+                    self.sr = f_obj.samplerate
                 else:
-                    assert sr == self.sr
-                self.waves.append(y)
+                    assert f_obj.samplerate == self.sr
+        self.file_lengths = np.array(self.file_lengths)
+        self.boundaries = np.cumsum(self.file_lengths)
 
     def __len__(self):
         return self.size
 
     def __getitem__(self, index):
-        wav = random.choice(self.waves)
-        pos = random.randint(0, len(wav) - self.segment - 1)
-        x = wav[pos:pos + self.segment]
+        index = random.randint(0, self.boundaries[-1] - 1)
+        index = np.digitize(index, self.boundaries)
+        f, length = self.files[index], self.file_lengths[index]
+        pos = random.randint(0, length - self.segment - 1)
+        f.seek(pos)
+        x = f.read(self.segment, dtype='float32', always_2d=True).mean(1)
         return x
 
 
@@ -116,3 +137,10 @@ class RandomWaveFileLoader(BaseDataLoader):
         self.data_dir = data_dir
         self.dataset = _WAVDataset(data_dir, batch_size * steps, **kwargs)
         super().__init__(self.dataset, batch_size, False, 0., num_workers)
+
+
+if __name__ == '__main__':
+    loader = RandomWaveFileLoader(100, '/media/ycy/86A4D88BA4D87F5D/DataSet/LJSpeech-1.1/wavs', 64, 0, segment=16000)
+
+    for x in loader:
+        print(x, x.shape)

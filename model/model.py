@@ -203,12 +203,10 @@ class WaveGlow(BaseModel):
         assert z.size(2) <= y.size(2)
         y = y[..., :z.size(2)]
 
-        *remained_z, z = z.split(self.z_split_sizes, 1)
-        z = z.clone()
-        tmp = []
-        for r in remained_z:
-            tmp.append(r.clone())
-        remained_z = tmp
+        remained_z = []
+        for r in z.split(self.z_split_sizes, 1):
+            remained_z.append(r.clone())
+        *remained_z, z = remained_z
 
         for k, invconv, affine_coup in zip(range(self.flows - 1, -1, -1), self.invconv1x1[::-1], self.WNs[::-1]):
 
