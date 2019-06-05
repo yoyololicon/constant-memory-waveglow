@@ -16,7 +16,7 @@
       "dilation_channels": 256,
       "residual_channels": 256,
       "skip_channels": 256,
-      "depth": 8,
+      "depth": 5,
       "radix": 3,
       "bias": false
     }
