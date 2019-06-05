@@ -3,7 +3,7 @@ import torch
 import numpy as np
 from torch import nn
 
-from model.efficient_modules import AffineCouplingBlock, SqueezeStrideConvFunc
+from model.efficient_modules import AffineCouplingBlock, SqueezeStrideConv
 from model.model import WN
 from model.loss import WaveGlowLoss
 
@@ -14,10 +14,10 @@ def set_seed(seed):
 
 
 @pytest.mark.parametrize('batch', list(2 ** i for i in range(6)))
-@pytest.mark.parametrize('channels', list(2 ** i for i in range(1, 4)))
+@pytest.mark.parametrize('channels', list(2 ** i for i in range(1, 6)))
 @pytest.mark.parametrize('length', [2000])
 def test_conv1x1_fwd_bwd(batch, channels, length):
-    weights = SqueezeStrideConvFunc(channels).state_dict()
+    weights = SqueezeStrideConv(channels).state_dict()
     loss_func = WaveGlowLoss().cuda()
 
     for seed in range(10):
@@ -26,7 +26,7 @@ def test_conv1x1_fwd_bwd(batch, channels, length):
         for bwd in [False, True]:
             impl_out, impl_grad = [], []
             for keep_input in [True, False]:
-                model = SqueezeStrideConvFunc(channels, memory_efficient=not keep_input)
+                model = SqueezeStrideConv(channels, memory_efficient=not keep_input)
                 model.load_state_dict(weights)
                 model = model.cuda()
                 model.train()
@@ -66,13 +66,13 @@ def test_conv1x1_fwd_bwd(batch, channels, length):
                 assert x.shape == data.shape
                 assert torch.allclose(x.cpu(), data)
                 print(torch.abs(x - xinv).max().item())
-                assert torch.allclose(x, xinv, atol=1e-6, rtol=0)
+                assert torch.allclose(x, xinv, atol=2e-6, rtol=0)
 
                 impl_out.append(y.detach().cpu())
                 impl_grad.append([p.grad.cpu() for p in model.parameters()])
 
             for p_grad1, p_grad2 in zip(impl_grad[0], impl_grad[1]):
-                assert torch.allclose(p_grad1, p_grad2, atol=5e-7, rtol=0)
+                assert torch.allclose(p_grad1, p_grad2, atol=2e-7, rtol=0)
             assert torch.allclose(impl_out[0], impl_out[1])
 
 

@@ -6,7 +6,7 @@ from utils.util import add_weight_norms
 from librosa.filters import mel
 import numpy as np
 
-from model.efficient_modules import AffineCouplingBlock, InvertibleConv1x1
+from model.efficient_modules import AffineCouplingBlock, SqueezeStrideConv
 
 
 class _NonCausalLayer(nn.Module):

@@ -276,8 +276,9 @@ class InvSqueezeStrideConvFunc(Function):
                 db = None
             else:
                 db = -dz.sum((0, 2))
+                z = z - bias.unsqueeze(-1)
             dw = x_grad.view(batch, in_channels, -1, stride).permute(3, 1, 0, 2).contiguous().view(out_channels, -1) \
-                 @ (z - bias.unsqueeze(-1)).transpose(1, 2).contiguous().view(-1, out_channels)
+                 @ z.transpose(1, 2).contiguous().view(-1, out_channels)
             dinvw = - weight_T @ dw @ weight_T
             dinvw -= weight_T * log_det_W_grad * n_of_groups
 
