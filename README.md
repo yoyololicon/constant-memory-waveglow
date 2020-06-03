@@ -1,4 +1,5 @@
 # Constant Memory WaveGlow
+[![DOI](https://zenodo.org/badge/159754913.svg)](https://zenodo.org/badge/latestdoi/159754913)
 
 A PyTorch implementation of
 [WaveGlow: A Flow-based Generative Network for Speech Synthesis](https://arxiv.org/abs/1811.00002)
