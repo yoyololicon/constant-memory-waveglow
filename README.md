@@ -48,7 +48,8 @@ The generation speed is around 470kHz on a 1080ti.
 
 ## Citation
 If you use our code on any project and research, please cite:
-```
+
+```bibtex
 @misc{memwaveglow,
   doi          = {10.5281/zenodo.3874330},
   author       = {Chin Yun Yu},
