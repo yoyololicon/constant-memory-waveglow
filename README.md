@@ -44,3 +44,16 @@ I trained the model on some cello music pieces from MusicNet using the `musicnet
 The clips in the `samples` folder is what I got. Although the audio quality is not very good, it's possible to use 
 WaveGlow on music generation as well. 
 The generation speed is around 470kHz on a 1080ti.
+
+
+## Citation
+If you use our code on any project and research, please cite:
+```
+@misc{memwaveglow,
+  doi          = {10.5281/zenodo.3874330},
+  author       = {Chin Yun Yu},
+  title        = {Constant Memory WaveGlow: A PyTorch implementation of WaveGlow with constant memory cost},
+  howpublished = {\url{https://github.com/yoyololicon/constant-memory-waveglow}},
+  year         = {2019}
+}
+```
