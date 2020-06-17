@@ -51,11 +51,10 @@ class AffineCouplingBlock(nn.Module):
         if memory_efficient:
             self.efficient_forward = AffineCouplingFunc.apply
             self.efficient_inverse = InvAffineCouplingFunc.apply
-            self.param_list = list(self.F.parameters())
 
     def forward(self, x, y):
         if hasattr(self, 'efficient_forward'):
-            z, log_s = self.efficient_forward(x, y, self.F, *self.param_list)
+            z, log_s = self.efficient_forward(x, y, self.F, *self.F.parameters())
             x.storage().resize_(0)
             return z, log_s
         else:
@@ -68,7 +67,7 @@ class AffineCouplingBlock(nn.Module):
 
     def inverse(self, z, y):
         if hasattr(self, 'efficient_inverse'):
-            x, log_s = self.efficient_inverse(z, y, self.F, *self.param_list)
+            x, log_s = self.efficient_inverse(z, y, self.F, *self.F.parameters())
             z.storage().resize_(0)
             return x, log_s
         else:

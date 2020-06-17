@@ -53,10 +53,15 @@ class Trainer(BaseTrainer):
                 mel_spec -= mel_spec.min()
                 mel_spec /= mel_spec.max()
                 self.writer.add_image('input_mel-spectrum', mel_spec.flip(0), dataformats='HW')
-
-                x = self.model.infer(mels[0], z[0].std().item())
+                   
+                if type(self.model) is nn.DataParallel:
+                    sr = self.model.module.sr
+                    x = self.model.module.infer(mels[0], z[0].std().item())
+                else:
+                    sr = self.model.sr
+                    x = self.model.infer(mels[0], z[0].std().item())
                 torch.clamp(x, -1, 1, out=x)
-                self.writer.add_audio('reconstruct_audio', x.cpu()[None, :], sample_rate=self.model.sr)
+                self.writer.add_audio('reconstruct_audio', x.cpu()[None, :], sample_rate=sr)
 
             if self.lr_scheduler is not None:
                 self.lr_scheduler.step()
