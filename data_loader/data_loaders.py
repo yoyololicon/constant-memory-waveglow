@@ -106,10 +106,6 @@ class _WAVDataset(Dataset):
         self.file_lengths = np.array(file_lengths)
         self.boundaries = np.cumsum(self.file_lengths) / self.file_lengths.sum()
 
-        # normalization value based on each file
-        # will updated on the fily
-        self.max_values = np.zeros(self.file_lengths.shape).astype(np.float32)
-
     def __len__(self):
         return self.size
 
@@ -119,10 +115,6 @@ class _WAVDataset(Dataset):
         pos = random.randrange(0, length)
         f.seek(pos)
         x = f.read(self.segment, dtype='float32', always_2d=True, fill_value=0.).mean(1)
-        max_abs = np.abs(x).max()
-        if max_abs > self.max_values[index]:
-            self.max_values[index] = max_abs
-        x /= self.max_values[index]
         return x
 
 
