@@ -32,6 +32,11 @@ def main(config, resume, infile, outfile, sigma, dur, half):
 
     sr = config['arch']['args']['sr']
     y, _ = load(infile, sr=sr, duration=dur)
+    
+    offset = len(y) % n_group
+    if offset:
+        y = y[:-offset]
+
     y = torch.Tensor(y).to(device)
 
     # get mel before turn to half, because sparse.half is not implement yet
@@ -40,11 +45,26 @@ def main(config, resume, infile, outfile, sigma, dur, half):
     if half:
         model = model.half()
         mel = mel.half()
+        y = y.half()
+
+    with torch.no_grad():
+        start = time()
+        z, logdet, _ = model(y[None, :], mel)
+        cost = time() - start
+        z = z.squeeze()
+    
+    print(z.mean().item(), z.std().item())
+    print("Forward LL:", logdet.mean().item() / z.size(0) - 0.5 * (z.pow(2).mean().item() / sigma ** 2 + math.log(2 * math.pi) + 2 * math.log(sigma)))
+    print("Time cost: {:.4f}, Speed: {:.4f} kHz".format(cost, z.numel() / cost / 1000))
+
     start = time()
-    x = model.infer(mel, sigma)
+    x, logdet = model.infer(mel, sigma)
     cost = time() - start
+
+    print("Backward LL:", -logdet.mean().item() / x.size(0) - 0.5 * (1 + math.log(2 * math.pi) + 2 * math.log(sigma)))
+
     print("Time cost: {:.4f}, Speed: {:.4f} kHz".format(cost, x.numel() / cost / 1000))
-    # print(x.max(), x.min())
+    print(x.max().item(), x.min().item())
     write_wav(outfile, x.cpu().float().numpy(), sr, False)
 
 
