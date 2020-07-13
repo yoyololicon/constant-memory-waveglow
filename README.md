@@ -61,7 +61,7 @@ The generation speed is around 470kHz on a 1080ti.
 ### WaveFlow
 
 I trained on full LJ speech dataset using the `waveflow_LJ_speech.json`. The settings are corresponding to the **64 residual channels, h=64** model in the paper. After training about 1.25M steps, the audio quality is very similiar to their official examples.
-
+Samples generated from training data can be listened [here](samples/waveflow_64chs).
 
 
 ## Citation
