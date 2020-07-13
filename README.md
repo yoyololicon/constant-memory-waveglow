@@ -11,6 +11,10 @@ The model implementation details are slightly differed from the
 personal favor, and the project structure is brought from
 [pytorch-template](https://github.com/victoresque/pytorch-template).
 
+Besides, we also add an implementation of Baidu's [WaveFlow](https://arxiv.org/abs/1912.01219), which is easier to train and more memory fiendly.
+
+##
+
 ## Quick Start
 
 Modify the `data_dir` in the json file to a directory which has a bunch of wave files with the same sampling rate, 
@@ -34,9 +38,15 @@ then your are good to go. The mel-spectrogram will be computed on the fly.
 python train.py -c config.json
 ```
 
-## Memory Usage Comparison
+## Memory consumption of model training in PyTorch
 
-Coming soon.
+
+| Model                      |  Memory (MB)  |
+-----------------------------|:-------------:|
+| channels=256, batch size=24 (naive)    |    N.A.       |
+| channels=256, batch size=24 (efficient)|    4951       |
+
+
 
 ## Result
 
