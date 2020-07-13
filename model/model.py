@@ -235,7 +235,7 @@ class WaveGlow(BaseModel):
         z = h.new_empty((batch_dim, samples)).normal_(std=sigma)
         # z = torch.randn(batch_dim, self.n_group, group_steps, dtype=y.dtype, device=y.device).mul_(sigma)
         x, _ = self.inverse(z, h)
-        return x.squeeze()
+        return x.squeeze(), _
 
     
 
