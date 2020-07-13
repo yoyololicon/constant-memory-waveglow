@@ -50,10 +50,18 @@ python train.py -c config.json
 
 ## Result
 
+### WaveGlow
+
 I trained the model on some cello music pieces from MusicNet using the `musicnet_config.json`.
 The clips in the `samples` folder is what I got. Although the audio quality is not very good, it's possible to use 
 WaveGlow on music generation as well. 
 The generation speed is around 470kHz on a 1080ti.
+
+
+### WaveFlow
+
+I trained on full LJ speech dataset using the `waveflow_LJ_speech.json`. The settings are corresponding to the **64 residual channels, h=64** model in the paper. After training about 1.25M steps, the audio quality is very similiar to their official examples.
+
 
 
 ## Citation
