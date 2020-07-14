@@ -56,10 +56,10 @@ class Trainer(BaseTrainer):
                    
                 if type(self.model) is nn.DataParallel:
                     sr = self.model.module.sr
-                    x = self.model.module.infer(mels[0], z[0].std().item())
+                    x = self.model.module.infer(mels[0], z[0].std().item())[0]
                 else:
                     sr = self.model.sr
-                    x = self.model.infer(mels[0], z[0].std().item())
+                    x = self.model.infer(mels[0], z[0].std().item())[0]
                 torch.clamp(x, -1, 1, out=x)
                 self.writer.add_audio('reconstruct_audio', x.cpu()[None, :], sample_rate=sr)
 
