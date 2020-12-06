@@ -29,11 +29,13 @@ class Trainer(BaseTrainer):
 
             data = data.to(self.device)
 
-            self.optimizer.zero_grad()
-            z, logdet, mels = self.model(data)
-            loss = self.loss(z, logdet)
-            loss.backward()
-            self.optimizer.step()
+            self.optimizer.zero_grad(set_to_none=True)
+            with torch.cuda.amp.autocast(enabled=self.amp_enabled):
+                z, logdet, mels = self.model(data)
+                loss = self.loss(z, logdet)
+            self.scaler.scale(loss).backward()
+            self.scaler.step(self.optimizer)
+            self.scaler.update()
 
             self.writer.set_step(step)
             self.writer.add_scalar('loss', loss.item())
@@ -49,19 +51,20 @@ class Trainer(BaseTrainer):
                     100.0 * step / self.steps,
                     loss.item()))
                 #self.writer.add_image('input', make_grid(data.cpu(), nrow=8, normalize=True))
+                z, mels = z.float(), mels.float()
                 mel_spec = mels[0].cpu()
                 mel_spec -= mel_spec.min()
                 mel_spec /= mel_spec.max()
                 self.writer.add_image('input_mel-spectrum', mel_spec.flip(0), dataformats='HW')
                    
-                if type(self.model) is nn.DataParallel:
+                if type(self.model) is torch.nn.DataParallel:
                     sr = self.model.module.sr
                     x = self.model.module.infer(mels[0], z[0].std().item())[0]
                 else:
                     sr = self.model.sr
                     x = self.model.infer(mels[0], z[0].std().item())[0]
                 torch.clamp(x, -1, 1, out=x)
-                self.writer.add_audio('reconstruct_audio', x.cpu()[None, :], sample_rate=sr)
+                self.writer.add_audio('reconstruct_audio', x.cpu()[:, None], sample_rate=sr)
 
             if self.lr_scheduler is not None:
                 self.lr_scheduler.step()

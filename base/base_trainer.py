@@ -25,6 +25,8 @@ class BaseTrainer:
 
         self.loss = loss
         self.optimizer = optimizer
+        self.amp_enabled = config['trainer']['amp']
+        self.scaler = torch.cuda.amp.GradScaler(enabled=self.amp_enabled)
 
         self.steps = config['trainer']['steps']
         self.save_freq = config['trainer']['save_freq']
@@ -61,6 +63,10 @@ class BaseTrainer:
                 n_gpu_use, n_gpu)
             self.logger.warning(msg)
             n_gpu_use = n_gpu
+
+        if n_gpu_use:
+            torch.backends.cudnn.benchmark = True
+
         device = torch.device('cuda:0' if n_gpu_use > 0 else 'cpu')
         list_ids = list(range(n_gpu_use))
         return device, list_ids
@@ -83,6 +89,7 @@ class BaseTrainer:
             'step': step,
             'state_dict': self.model.state_dict(),
             'optimizer': self.optimizer.state_dict(),
+            'scaler': self.scaler.state_dict(),
             'config': self.config
         }
         filename = os.path.join(self.checkpoint_dir, 'checkpoint-step{}.pth'.format(step))
@@ -105,8 +112,9 @@ class BaseTrainer:
             self.logger.warning(
                 'Warning: Architecture configuration given in config file is different from that of checkpoint. ' + \
                 'This may yield an exception while state_dict is being loaded.')
-        self.model.load_state_dict(checkpoint['state_dict'])
-
+        self.model.load_state_dict(checkpoint['state_dict'], False)
+        self.scaler.load_state_dict(checkpoint['scaler'])
+        
         # load optimizer state from checkpoint only when optimizer type is not changed. 
         if checkpoint['config']['optimizer']['type'] != self.config['optimizer']['type']:
             self.logger.warning('Warning: Optimizer type given in config file is different from that of checkpoint. ' + \

@@ -24,7 +24,7 @@
   "data_loader": {
     "type": "RandomWaveFileLoader",
     "args": {
-      "data_dir": "/media/ycy/86A4D88BA4D87F5D/DataSet/LJSpeech-1.1/wavs",
+      "data_dir": "/home/ycy/Datasets/LJSpeech-1.1/wavs",
       "batch_size": 24,
       "num_workers": 1,
       "segment": 16000
@@ -54,12 +54,13 @@
   },
   "trainer": {
     "steps": 580000,
-    "save_dir": "/media/ycy/86A4D88BA4D87F5D/DataSet/waveglow-result/",
-    "save_freq": 50,
-    "verbosity": 2
+    "save_dir": "saved/",
+    "save_freq": 10000,
+    "verbosity": 2,
+    "amp": true
   },
   "visualization": {
     "tensorboardX": true,
-    "log_dir": "/media/ycy/86A4D88BA4D87F5D/DataSet/waveglow-result/runs"
+    "log_dir": "runs/"
   }
 }

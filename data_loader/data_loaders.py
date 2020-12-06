@@ -96,13 +96,14 @@ class _WAVDataset(Dataset):
             if f.endswith('.wav'):
                 filename = os.path.join(self.data_path, f)
                 f_obj = sf.SoundFile(filename)
-                self.files.append(f_obj)
+                self.files.append(filename)
                 file_lengths.append(max(1, get_nframes(f_obj.extra_info) - segment + 1))
 
                 if not self.sr:
                     self.sr = f_obj.samplerate
                 else:
                     assert f_obj.samplerate == self.sr
+                f_obj.close()
         self.file_lengths = np.array(file_lengths)
         self.boundaries = np.cumsum(np.array([0] + file_lengths)) / self.file_lengths.sum()
 
@@ -114,8 +115,9 @@ class _WAVDataset(Dataset):
         index = np.digitize(rand_pos, self.boundaries[1:], right=True)
         f, length = self.files[index], self.file_lengths[index]
         pos = int(round(length * (rand_pos - self.boundaries[index]) / (self.boundaries[index+1] - self.boundaries[index])))
-        f.seek(pos)
-        x = f.read(self.segment, dtype='float32', always_2d=True, fill_value=0.).mean(1)
+        #f.seek(pos)
+        x = sf.read(f, self.segment, start=pos, dtype='float32', always_2d=True, fill_value=0.)[0].mean(1)
+        #x = f.read(self.segment, dtype='float32', always_2d=True, fill_value=0.).mean(1)
         return x
 
 

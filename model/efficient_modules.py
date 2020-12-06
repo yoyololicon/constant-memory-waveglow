@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Function, set_grad_enabled, grad, gradcheck
+from torch.cuda.amp import custom_fwd, custom_bwd
 
 from functools import reduce
 from operator import mul
@@ -81,6 +82,7 @@ class AffineCouplingBlock(nn.Module):
 
 class AffineCouplingFunc(Function):
     @staticmethod
+    @custom_fwd
     def forward(ctx, x, y, F, *F_weights):
         ctx.F = F
         with torch.no_grad():
@@ -96,6 +98,7 @@ class AffineCouplingFunc(Function):
         return z, log_s
 
     @staticmethod
+    @custom_bwd
     def backward(ctx, z_grad, log_s_grad):
         F = ctx.F
         x, y, z = ctx.saved_tensors
@@ -113,7 +116,7 @@ class AffineCouplingFunc(Function):
         with torch.no_grad():
             s = log_s.exp()
             xb = (zb - t) / s
-            x.storage().resize_(reduce(mul, xb.shape) * 2)
+            x.storage().resize_(xb.numel() * 2)
             torch.cat((xa, xb), 1, out=x)  # .contiguous()
             #x.copy_(xout)  # .detach()
 
@@ -137,6 +140,7 @@ class AffineCouplingFunc(Function):
 
 class InvAffineCouplingFunc(Function):
     @staticmethod
+    @custom_fwd
     def forward(ctx, z, y, F, *F_weights):
         ctx.F = F
         with torch.no_grad():
@@ -152,6 +156,7 @@ class InvAffineCouplingFunc(Function):
         return x, -log_s
 
     @staticmethod
+    @custom_bwd
     def backward(ctx, x_grad, log_s_grad):
         F = ctx.F
         z, y, x = ctx.saved_tensors
@@ -170,7 +175,7 @@ class InvAffineCouplingFunc(Function):
         with torch.no_grad():
             zb = xb * s + t
 
-            z.storage().resize_(reduce(mul, zb.shape) * 2)
+            z.storage().resize_(zb.numel() * 2)
             torch.cat((za, zb), 1, out=z)
             #z.copy_(zout)
 
@@ -193,6 +198,7 @@ class InvAffineCouplingFunc(Function):
 
 class Conv1x1Func(Function):
     @staticmethod
+    @custom_fwd
     def forward(ctx, x, weight):
         with torch.no_grad():
             *_, n_of_groups = x.shape
@@ -204,13 +210,14 @@ class Conv1x1Func(Function):
         return z, log_det_W
 
     @staticmethod
+    @custom_bwd
     def backward(ctx, z_grad, log_det_W_grad):
         x, weight, z = ctx.saved_tensors
         *_, n_of_groups = z.shape
 
         with torch.no_grad():
             inv_weight = weight.squeeze().inverse()
-            x.storage().resize_(reduce(mul, z.shape))
+            x.storage().resize_(z.numel())
             x[:] = F.conv1d(z, inv_weight.unsqueeze(-1))
 
             dx = F.conv1d(z_grad, weight[..., 0].t().unsqueeze(-1))
@@ -223,6 +230,7 @@ class Conv1x1Func(Function):
 
 class InvConv1x1Func(Function):
     @staticmethod
+    @custom_fwd
     def forward(ctx, x, inv_weight):
         with torch.no_grad():
             sqr_inv_weight = inv_weight.squeeze()
@@ -235,12 +243,13 @@ class InvConv1x1Func(Function):
         return z, log_det_W
 
     @staticmethod
+    @custom_bwd
     def backward(ctx, z_grad, log_det_W_grad):
         x, inv_weight, z = ctx.saved_tensors
         *_, n_of_groups = z.shape
 
         with torch.no_grad():
-            x.storage().resize_(reduce(mul, z.shape))
+            x.storage().resize_(z.numel())
             x[:] = F.conv1d(z, inv_weight)
 
             inv_weight = inv_weight.squeeze()

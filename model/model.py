@@ -5,6 +5,7 @@ from base import BaseModel
 from utils.util import add_weight_norms
 from librosa.filters import mel
 import numpy as np
+from nnAudio.Spectrogram import MelSpectrogram
 
 from model.efficient_modules import AffineCouplingBlock, InvertibleConv1x1
 
@@ -34,7 +35,7 @@ class _NonCausalLayer(nn.Module):
     def forward(self, x, y):
         xy = torch.cat((x, y), 1)
         zw, zf = self.WV(xy).chunk(2, 1)
-        z = zw.tanh_().mul(zf.sigmoid_())
+        z = zw.tanh().mul(zf.sigmoid())
         *z, skip = self.W_o(z).split(self.chs_split, 1)
         return z[0] + x if len(z) else None, skip
 
@@ -95,7 +96,7 @@ class WN(nn.Module):
             if cum_skip is None:
                 cum_skip = skip
             else:
-                cum_skip += skip
+                cum_skip = cum_skip + skip
         return self.end(cum_skip).chunk(2, 1)
 
 
@@ -143,21 +144,13 @@ class WaveGlow(BaseModel):
                                     aux_channels=n_mels, **kwargs))
         self.z_split_sizes.append(n_remaining_channels)
 
-        filters = mel(sr, window_size, n_mels, fmax=8000)
-        self.filter_idx = np.nonzero(filters)
-        self.register_buffer('filter_value', torch.Tensor(filters[self.filter_idx]))
-        self.filter_size = torch.Size(filters.shape)
-        self.register_buffer('window', torch.hann_window(window_size))
+        self.mel = nn.Sequential(
+                nn.ReflectionPad1d((window_size // 2 - hop_size // 2, window_size // 2 + hop_size // 2)),
+                MelSpectrogram(sr, window_size, n_mels, hop_size, center=False, fmax=8000)
+            )
 
     def get_mel(self, x):
-        batch_size = x.size(0)
-        S = torch.stft(x, self.win_size, self.hop_size, window=self.window, pad_mode='constant').pow(2).sum(3)
-        mel_filt = torch.sparse_coo_tensor(self.filter_idx, self.filter_value, self.filter_size)
-        N = S.size(1)
-        mel_S = mel_filt @ S.transpose(0, 1).contiguous().view(N, -1)
-        # compress
-        mel_S.add_(1e-7).log_()
-        return mel_S.view(self.n_mels, batch_size, -1).transpose(0, 1)
+        return self.mel(x.unsqueeze(1)).add_(1e-7).log_()
 
     def forward(self, x, h=None):
         if h is None:
@@ -192,8 +185,8 @@ class WaveGlow(BaseModel):
         return torch.cat(output_audio, 1).transpose(1, 2).contiguous().view(batch_dim, -1), logdet, h
 
     def _upsample_h(self, h):
-        h = F.pad(h, (0, 1))
-        return F.interpolate(h, size=((h.size(2) - 1) * self.upsample_factor + 1,), mode='linear')
+        # h = F.pad(h, (0, 1))
+        return F.interpolate(h, scale_factor=self.upsample_factor, mode='linear')
         # return self.upsampler(h)
 
     def inverse(self, z, h):
@@ -272,7 +265,7 @@ class _NonCausalLayer2D(nn.Module):
         tmp = F.pad(x, [self.pad_size] * 2 + [self.h_pad_size, 0])
         xy = self.W(tmp) + self.V(y).unsqueeze(2)
         zw, zf = xy.chunk(2, 1)
-        z = zw.tanh_().mul(zf.sigmoid_())
+        z = zw.tanh().mul(zf.sigmoid())
         *z, skip = self.W_o(z).split(self.chs_split, 1)
         if len(z):
             output = z[0]
@@ -418,22 +411,14 @@ class WaveFlow(BaseModel):
             self.WNs.append(WN2D(n_group, n_mels, **kwargs))
             if use_conv1x1:
                 self.invconv1x1.append(InvertibleConv1x1(n_group, memory_efficient=memory_efficient))
-
-        filters = mel(sr, window_size, n_mels, fmax=8000)
-        self.filter_idx = np.nonzero(filters)
-        self.register_buffer('filter_value', torch.Tensor(filters[self.filter_idx]))
-        self.filter_size = torch.Size(filters.shape)
-        self.register_buffer('window', torch.hann_window(window_size))
+        
+        self.mel = nn.Sequential(
+                nn.ReflectionPad1d((window_size // 2 - hop_size // 2, window_size // 2)),   
+                MelSpectrogram(sr, window_size, n_mels, hop_size, center=False, fmax=8000)
+            )
 
     def get_mel(self, x):
-        batch_size = x.size(0)
-        S = torch.stft(x, self.win_size, self.hop_size, window=self.window, pad_mode='constant').pow(2).sum(3)
-        mel_filt = torch.sparse_coo_tensor(self.filter_idx, self.filter_value, self.filter_size)
-        N = S.size(1)
-        mel_S = mel_filt @ S.transpose(0, 1).contiguous().view(N, -1)
-        # compress
-        mel_S.add_(1e-7).log_()
-        return mel_S.view(self.n_mels, batch_size, -1).transpose(0, 1)
+        return self.mel(x).add_(1e-7).log_()
 
     def forward(self, x, h=None):
         if h is None:
