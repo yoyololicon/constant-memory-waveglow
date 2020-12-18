@@ -57,7 +57,8 @@
     "save_dir": "saved/",
     "save_freq": 10000,
     "verbosity": 2,
-    "amp": true
+    "amp": true,
+    "inference": true
   },
   "visualization": {
     "tensorboardX": true,

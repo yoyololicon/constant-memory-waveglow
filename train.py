@@ -9,6 +9,7 @@ import model.model as module_arch
 from trainer import Trainer
 from utils import Logger
 
+import torch_optimizer as optim
 
 def get_instance(module, name, config, *args):
     return getattr(module, config[name]['type'])(*args, **config[name]['args'])
@@ -32,7 +33,10 @@ def main(config, resume):
 
     # build optimizer, learning rate scheduler. delete every lines containing lr_scheduler for disabling scheduler
     trainable_params = filter(lambda p: p.requires_grad, model.parameters())
-    optimizer = get_instance(torch.optim, 'optimizer', config, trainable_params)
+    if hasattr(torch.optim, config['optimizer']['type']):
+        optimizer = get_instance(torch.optim, 'optimizer', config, trainable_params)
+    else:
+        optimizer = get_instance(optim, 'optimizer', config, trainable_params)
     #lr_scheduler = get_instance(torch.optim.lr_scheduler, 'lr_scheduler', config, optimizer)
 
     trainer = Trainer(model, loss, optimizer,
@@ -52,6 +56,7 @@ if __name__ == '__main__':
                            help='path to latest checkpoint (default: None)')
     parser.add_argument('-d', '--device', default=None, type=str,
                            help='indices of GPUs to enable (default: all)')
+    parser.add_argument('--lr', default=None, type=float)
     args = parser.parse_args()
 
     if args.config:
@@ -64,6 +69,9 @@ if __name__ == '__main__':
         config = torch.load(args.resume)['config']
     else:
         raise AssertionError("Configuration file need to be specified. Add '-c config.json', for example.")
+    
+    if args.lr:
+        config['optimizer']['args']['lr'] = args.lr
     
     if args.device:
         os.environ["CUDA_VISIBLE_DEVICES"]=args.device

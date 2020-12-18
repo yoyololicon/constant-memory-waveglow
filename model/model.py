@@ -185,9 +185,7 @@ class WaveGlow(BaseModel):
         return torch.cat(output_audio, 1).transpose(1, 2).contiguous().view(batch_dim, -1), logdet, h
 
     def _upsample_h(self, h):
-        # h = F.pad(h, (0, 1))
         return F.interpolate(h, scale_factor=self.upsample_factor, mode='linear')
-        # return self.upsampler(h)
 
     def inverse(self, z, h):
         y = self._upsample_h(h)
@@ -281,7 +279,7 @@ class _NonCausalLayer2D(nn.Module):
         tmp = F.pad(buffer, [self.pad_size] * 2)
         xy = self.W(tmp) + self.V(y).unsqueeze(2)
         zw, zf = xy.chunk(2, 1)
-        z = zw.tanh_().mul(zf.sigmoid_())
+        z = zw.tanh().mul(zf.sigmoid())
         *z, skip = self.W_o(z).split(self.chs_split, 1)
         if len(z):
             output = z[0]
@@ -354,7 +352,7 @@ class WN2D(nn.Module):
             if cum_skip is None:
                 cum_skip = skip
             else:
-                cum_skip += skip
+                cum_skip = cum_skip + skip
         return self.end(cum_skip).chunk(2, 1)
     
     def inverse_forward(self, x, y, buffer_list=None):
@@ -370,7 +368,7 @@ class WN2D(nn.Module):
             if cum_skip is None:
                 cum_skip = skip
             else:
-                cum_skip += skip
+                cum_skip = cum_skip + skip
         
         return self.end(cum_skip).chunk(2, 1) + (new_buffer_list,)
 
@@ -395,6 +393,7 @@ class WaveFlow(BaseModel):
         self.sub_sr = self.hop_size // n_group
 
         self.upsampler = nn.Sequential(
+            nn.ReplicationPad1d((0, 1)),
             nn.ConvTranspose1d(n_mels, n_mels, self.sub_sr * 2 + 1, self.sub_sr, padding=self.sub_sr),
             nn.LeakyReLU(0.4, True)
         )
@@ -413,12 +412,12 @@ class WaveFlow(BaseModel):
                 self.invconv1x1.append(InvertibleConv1x1(n_group, memory_efficient=memory_efficient))
         
         self.mel = nn.Sequential(
-                nn.ReflectionPad1d((window_size // 2 - hop_size // 2, window_size // 2)),   
-                MelSpectrogram(sr, window_size, n_mels, hop_size, center=False, fmax=8000)
+                nn.ReflectionPad1d((window_size // 2 - self.hop_size // 2, window_size // 2 + self.hop_size // 2)),   
+                MelSpectrogram(sr, window_size, n_mels, self.hop_size, center=False, fmax=8000)
             )
 
     def get_mel(self, x):
-        return self.mel(x).add_(1e-7).log_()
+        return self.mel(x.unsqueeze(1)).add_(1e-7).log_()
 
     def forward(self, x, h=None):
         if h is None:
@@ -454,8 +453,6 @@ class WaveFlow(BaseModel):
         return x.squeeze(1).transpose(1, 2).contiguous().view(batch_dim, -1), logdet, h
 
     def _upsample_h(self, h):
-        h = F.pad(h, (0, 1))
-        #return F.interpolate(h, size=((h.size(2) - 1) * self.upsample_factor + 1,), mode='linear')
         return self.upsampler(h)
 
     def inverse(self, z, h):
@@ -513,30 +510,283 @@ class WaveFlow(BaseModel):
         return x.squeeze(), _
 
 
-if __name__ == '__main__':
-    import librosa
-    import matplotlib.pyplot as plt
+class _predictor(nn.Module):
+    def __init__(self,
+                 in_channels,
+                 out_channels,
+                 hidden_channels,
+                 layers,
+                 bias,
+                 groups):
+        super().__init__()
+        
+        self.groups = groups
+        
+        self.start = nn.Sequential(
+                nn.Conv1d(in_channels, hidden_channels * groups, 1, bias=bias),
+                nn.BatchNorm1d(hidden_channels * groups),
+                nn.Tanh())
+        
+        self.end = nn.Conv1d(hidden_channels * groups, out_channels * groups, 1, bias=bias, groups=groups)
+        self.res_blocks = nn.ModuleList([
+            nn.Sequential(
+                nn.Conv1d(hidden_channels * groups, hidden_channels * groups, 3, padding=1, bias=bias, groups=groups),
+                nn.BatchNorm1d(hidden_channels * groups),
+                nn.Tanh(),
+                nn.Conv1d(hidden_channels * groups, hidden_channels * groups, 3, padding=1, bias=bias, groups=groups),
+                nn.BatchNorm1d(hidden_channels * groups),
+                nn.Tanh()
+            ) for _ in range(layers)
+        ])
+    
+    def forward(self, x):
+        x = self.start(x)
+        for block in self.res_blocks:
+            x = block(x) + x
+        return self.end(x)
+    
 
-    y, sr = librosa.load(librosa.util.example_audio_file())
-    # h = librosa.feature.melspectrogram(y=y, sr=sr, n_fft=1024, hop_length=256, n_mels=80)
-    # print(h.shape, h.max())
-    # plt.imshow(h ** 0.1, aspect='auto', origin='lower')
-    # plt.show()
+class _NonCausalLayer_LVC(nn.Module):
+    def __init__(self,
+                 dilation,
+                 dilation_channels,
+                 residual_channels,
+                 skip_channels,
+                 radix,
+                 bias,
+                 last_layer=False):
+        super().__init__()
+        
+        self.padding = dilation * (radix - 1) // 2
+        self.dilation = dilation
 
-    y = torch.Tensor(y)
-    net = WaveGlow(12, 8, 4, 2, sr, 1024, 256, 80, depth=5, residual_channels=64, dilation_channels=64,
-                   skip_channels=64, bias=True)
-    # print(net)
-    print(sum(p.numel() for p in net.parameters() if p.requires_grad), "of parameters.")
+        self.chs_split = [skip_channels]
+        if last_layer:
+            self.W_o = nn.Conv1d(dilation_channels, skip_channels, 1, bias=bias)
+        else:
+            self.W_o = nn.Conv1d(dilation_channels, residual_channels + skip_channels, 1, bias=bias)
+            self.chs_split.insert(0, residual_channels)
 
-    h = net.get_mel(y[None, ...])[0]
-    print(h.shape, h.max())
-    plt.imshow(h.numpy(), aspect='auto', origin='lower')
-    plt.show()
+    def forward(self, x, weights):
+        batch, *kernel_size, steps = weights.shape
+        weights = weights.permute(0, 4, 1, 2, 3).contiguous().view(-1, *kernel_size[1:])
+        
+        offset = x.shape[2] // steps
+        padded_x = F.pad(x, (self.padding,) * 2)
+        unfolded_x = padded_x.unfold(2, self.padding * 2 + offset, offset).transpose(1, 2).contiguous().view(1, -1, self.padding * 2 + offset)
 
-    x = torch.rand(2, 16000) * 2 - 1
-    z, *_ = net(x)
-    print(z.shape)
+        z = F.conv1d(unfolded_x, weights, dilation=self.dilation, groups=batch * steps)
+        zw, zv = z.view(batch, steps, kernel_size[0], -1).transpose(1, 2).contiguous().view(batch, kernel_size[0], -1).chunk(2, 1)
+        z = zw.tanh().mul(zv.sigmoid())
+        *z, skip = self.W_o(z).split(self.chs_split, 1)
+        return z[0] + x if len(z) else None, skip
 
-    x = net.infer(h[:, :10])
-    print(x.shape)
+
+
+class WN_LVC(nn.Module):
+    def __init__(self,
+                 in_channels,
+                 depth,
+                 dilation_channels,
+                 residual_channels,
+                 skip_channels,
+                 radix,
+                 bias,
+                 zero_init=True):
+        super().__init__()
+        dilations = 2 ** torch.arange(depth)
+        self.dilations = dilations.tolist()
+        self.in_chs = in_channels
+        self.res_chs = residual_channels
+        self.dil_chs = dilation_channels
+        self.skp_chs = skip_channels
+        self.rdx = radix
+        self.r_field = sum(self.dilations) + 1
+
+        self.start = nn.Conv1d(in_channels, residual_channels, 1, bias=bias)
+        self.start.apply(add_weight_norms)
+
+        self.layers = nn.ModuleList(_NonCausalLayer_LVC(d,
+                                                        dilation_channels,
+                                                        residual_channels,
+                                                        skip_channels,
+                                                        radix,
+                                                        bias) for d in self.dilations[:-1])
+        self.layers.append(_NonCausalLayer_LVC(self.dilations[-1],
+                                               dilation_channels,
+                                               residual_channels,
+                                               skip_channels,
+                                               radix,
+                                               bias,
+                                               last_layer=True))
+
+        self.end = nn.Conv1d(skip_channels, in_channels * 2, 1, bias=bias)
+        if zero_init:
+            self.end.weight.data.zero_()
+            if bias:
+                self.end.bias.data.zero_()
+
+    def forward(self, x, weights):
+        x = self.start(x)
+        cum_skip = None
+        for layer, w in zip(self.layers, weights.chunk(len(self.dilations), 1)):
+            x, skip = layer(x, w.view(w.shape[0], 2 * self.dil_chs, self.res_chs, self.rdx, w.shape[2]))
+            if cum_skip is None:
+                cum_skip = skip
+            else:
+                cum_skip = cum_skip + skip
+        return self.end(cum_skip).chunk(2, 1)
+        
+        
+class MelGlow(BaseModel):
+    def __init__(self,
+                 flows,
+                 n_group,
+                 n_early_every,
+                 n_early_size,
+                 sr,
+                 window_size,
+                 hop_size,
+                 n_mels,
+                 depth=7,
+                 dilation_channels=32,
+                 residual_channels=32,
+                 skip_channels=32,
+                 radix=3,
+                 predict_channels=64,
+                 predict_layers=3,
+                 bias=False):
+        super().__init__()
+        self.flows = flows
+        self.n_group = n_group
+        self.n_early_every = n_early_every
+        self.n_early_size = n_early_size
+        self.win_size = window_size
+        self.hop_size = hop_size
+        self.n_mels = n_mels
+        self.sr = sr
+
+        self.upsample_factor = hop_size // n_group
+        sub_win_size = window_size // n_group
+
+        self.invconv1x1 = nn.ModuleList()
+        self.WNs = nn.ModuleList()
+
+        # Set up layers with the right sizes based on how many dimensions
+        # have been output already
+        n_remaining_channels = n_group
+        self.z_split_sizes = []
+        for k in range(flows):
+            if k % self.n_early_every == 0 and k:
+                n_remaining_channels -= n_early_size
+                self.z_split_sizes.append(n_early_size)
+            self.invconv1x1.append(InvertibleConv1x1(n_remaining_channels, memory_efficient=False))
+            self.WNs.append(
+                AffineCouplingBlock(WN_LVC, memory_efficient=False, 
+                                    in_channels=n_remaining_channels // 2,
+                                    depth=depth,
+                                    dilation_channels=dilation_channels,
+                                    residual_channels=residual_channels,
+                                    skip_channels=skip_channels, 
+                                    radix=radix,
+                                    bias=bias))
+        self.z_split_sizes.append(n_remaining_channels)
+
+        self.mel = nn.Sequential(
+                nn.ReflectionPad1d((window_size // 2 - hop_size // 2, window_size // 2 + hop_size // 2)),
+                MelSpectrogram(sr, window_size, n_mels, hop_size, center=False, fmin=60, fmax=7600)
+            )
+            
+        self.pred = _predictor(
+            n_mels, 
+            2 * dilation_channels * residual_channels * radix,
+            predict_channels,
+            predict_layers,
+            bias,
+            flows * depth
+        )
+
+    def get_mel(self, x):
+        return self.mel(x.unsqueeze(1)).add_(1e-7).log_()
+
+    def forward(self, x, h=None):
+        if h is None:
+            h = self.get_mel(x)
+        
+        batch_dim, n_mels, steps = h.shape
+        x = x[:, :x.shape[1] // self.hop_size * self.hop_size]
+        x = x.view(batch_dim, -1, self.n_group).transpose(1, 2)
+        y = h[..., :x.shape[2] // self.upsample_factor]
+
+        weights = self.pred(y).chunk(self.flows, 1)
+        
+        output_audio = []
+        split_sections = [self.n_early_size, self.n_group]
+
+        for k, (invconv, affine_coup, lvc_weights) in enumerate(zip(self.invconv1x1, 
+                                                                    self.WNs, 
+                                                                    weights)):
+            if k % self.n_early_every == 0 and k:
+                split_sections[1] -= self.n_early_size
+                early_output, x = x.split(split_sections, 1)
+                # these 2 lines actually copy tensors, may need optimization in the future
+                output_audio.append(early_output)
+                x = x.clone()
+
+            x, log_det_W = invconv(x)
+            x, log_s = affine_coup(x, lvc_weights)
+            if k:
+                logdet += log_det_W + log_s.sum((1, 2))
+            else:
+                logdet = log_det_W + log_s.sum((1, 2))
+
+        assert split_sections[1] == self.z_split_sizes[-1]
+        output_audio.append(x)
+        return torch.cat([o.transpose(1, 2) for o in output_audio], 2).view(batch_dim, -1), logdet, h
+
+
+    def inverse(self, z, h):
+        batch_dim, n_mels, steps = h.shape
+        z = z[:, :z.shape[1] // self.hop_size * self.hop_size]
+        z = z.view(batch_dim, -1, self.n_group).transpose(1, 2)
+        y = h[..., :z.shape[2] // self.upsample_factor]
+        
+        weights = self.pred(y).chunk(self.flows, 1)
+        
+        remained_z = []
+        for r in z.split(self.z_split_sizes, 1):
+            remained_z.append(r.clone())
+        *remained_z, z = remained_z
+
+        for k, invconv, affine_coup, lvc_weights in zip(range(self.flows - 1, -1, -1), 
+                                                              self.invconv1x1[::-1], 
+                                                              self.WNs[::-1], 
+                                                              weights[::-1]):
+
+            z, log_s = affine_coup.inverse(z, lvc_weights)
+            z, log_det_W = invconv.inverse(z)
+
+            if k == self.flows - 1:
+                logdet = log_det_W + log_s.sum((1, 2))
+            else:
+                logdet += log_det_W + log_s.sum((1, 2))
+
+            if k % self.n_early_every == 0 and k:
+                z = torch.cat((remained_z.pop(), z), 1)
+
+        z = z.transpose(1, 2).contiguous().view(batch_dim, -1)
+        return z, logdet
+
+    @torch.no_grad()
+    def infer(self, h, sigma=1.):
+        if len(h.shape) == 2:
+            h = h[None, ...]
+
+        batch_dim, n_mels, steps = h.shape
+        samples = steps * self.hop_size
+
+        z = h.new_empty((batch_dim, samples)).normal_(std=sigma)
+        x, _ = self.inverse(z, h)
+        return x.squeeze(), _
+
+

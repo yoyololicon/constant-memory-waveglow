@@ -1,19 +1,24 @@
 {
-  "name": "PyTorch WaveFlow",
+  "name": "PyTorch MelGlow",
   "n_gpu": 1,
   "arch": {
-    "type": "WaveFlow",
+    "type": "MelGlow",
     "args": {
-      "flows": 8,
-      "n_group": 64,
+      "flows": 12,
+      "n_group": 8,
+      "n_early_every": 4,
+      "n_early_size": 2,
       "sr": 22050,
       "window_size": 1024,
+      "hop_size": 256,
       "n_mels": 80,
-      "use_conv1x1": false,
-      "memory_efficient": false,
-      "dilation_channels": 64,
-      "residual_channels": 64,
-      "skip_channels": 64,
+      "dilation_channels": 32,
+      "residual_channels": 32,
+      "skip_channels": 32,
+      "depth": 7,
+      "radix": 3,
+      "predict_channels": 64,
+      "predict_layers": 3,
       "bias": false
     }
   },
@@ -23,13 +28,13 @@
       "data_dir": "~/Datasets/LJSpeech-1.1/wavs",
       "batch_size": 4,
       "num_workers": 1,
-      "segment": 16000
+      "segment": 22016
     }
   },
   "optimizer": {
-    "type": "Adam",
+    "type": "Yogi",
     "args": {
-      "lr": 2e-4
+      "lr": 1e-3
     }
   },
   "loss": {
@@ -49,12 +54,12 @@
     }
   },
   "trainer": {
-    "steps": 300000,
+    "steps": 600000,
     "save_dir": "saved",
     "save_freq": 10000,
     "verbosity": 2,
-    "amp": true,
-    "inference": false
+    "amp": false,
+    "inference": true
   },
   "visualization": {
     "tensorboardX": true,

@@ -5,8 +5,9 @@ import model.model as module_arch
 from utils.util import remove_weight_norms
 from train import get_instance
 from librosa import load
-from librosa.output import write_wav
+import soundfile as sf
 from time import time
+import math
 
 
 def main(config, resume, infile, outfile, sigma, dur, half):
@@ -31,6 +32,7 @@ def main(config, resume, infile, outfile, sigma, dur, half):
     model.eval()
 
     sr = config['arch']['args']['sr']
+    n_group = config['arch']['args']['n_group']
     y, _ = load(infile, sr=sr, duration=dur)
     
     offset = len(y) % n_group
@@ -65,7 +67,8 @@ def main(config, resume, infile, outfile, sigma, dur, half):
 
     print("Time cost: {:.4f}, Speed: {:.4f} kHz".format(cost, x.numel() / cost / 1000))
     print(x.max().item(), x.min().item())
-    write_wav(outfile, x.cpu().float().numpy(), sr, False)
+    sf.write(outfile, x.cpu().float().numpy(), sr, subtype='PCM_16')
+    #write_wav(outfile, x.cpu().float().numpy(), sr, False)
 
 
 if __name__ == '__main__':
