@@ -11,9 +11,16 @@ The model implementation details are slightly differed from the
 personal favor, and the project structure is brought from
 [pytorch-template](https://github.com/victoresque/pytorch-template).
 
-Besides, we also add an implementation of Baidu's [WaveFlow](https://arxiv.org/abs/1912.01219), which is easier to train and more memory fiendly.
+Besides, we also add implementations of Baidu's [WaveFlow](https://arxiv.org/abs/1912.01219), and [MelGlow](https://arxiv.org/abs/2012.01684), 
+which are easier to train and more memory fiendly.
 
-##
+## Requirements
+
+After install the requirements from [pytorch-template](https://github.com/victoresque/pytorch-template#requirements):
+
+```commandline
+pip install nnAudio torch_optimizer
+```
 
 ## Quick Start
 
@@ -41,10 +48,10 @@ python train.py -c config.json
 ## Memory consumption of model training in PyTorch
 
 
-| Model                      |  Memory (MB)  |
------------------------------|:-------------:|
-| channels=256, batch size=24 (naive)    |    N.A.       |
-| channels=256, batch size=24 (efficient)|    4951       |
+| Model                                            |  Memory (MB)  |
+---------------------------------------------------|:-------------:|
+| WaveGlow, channels=256, batch size=24 (naive)    |    N.A.       |
+| WaveGlow, channels=256, batch size=24 (efficient)|    4951       |
 
 
 
@@ -62,6 +69,10 @@ The generation speed is around 470kHz on a 1080ti.
 
 I trained on full LJ speech dataset using the `waveflow_LJ_speech.json`. The settings are corresponding to the **64 residual channels, h=64** model in the paper. After training about 1.25M steps, the audio quality is very similiar to their official examples.
 Samples generated from training data can be listened [here](samples/waveflow_64chs).
+
+### MelGlow
+
+Coming soon.
 
 
 ## Citation
