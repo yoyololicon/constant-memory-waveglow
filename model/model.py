@@ -10,6 +10,11 @@ from nnAudio.Spectrogram import MelSpectrogram
 from model.efficient_modules import AffineCouplingBlock, InvertibleConv1x1
 
 
+@torch.jit.script
+def fused_gate(x1: torch.Tensor, x2: torch.Tensor) -> torch.Tensor:
+    return x1.tanh() * x2.sigmoid()
+
+
 class _NonCausalLayer(nn.Module):
     def __init__(self,
                  dilation,
@@ -568,8 +573,8 @@ class _NonCausalLayer_LVC(nn.Module):
             self.chs_split.insert(0, residual_channels)
 
     def forward(self, x, weights):
-        batch, *kernel_size, steps = weights.shape
-        weights = weights.permute(0, 4, 1, 2, 3).contiguous().view(-1, *kernel_size[1:])
+        batch, steps, *kernel_size = weights.shape
+        weights = weights.view(-1, *kernel_size[1:])
         
         offset = x.shape[2] // steps
         padded_x = F.pad(x, (self.padding,) * 2)
@@ -629,8 +634,8 @@ class WN_LVC(nn.Module):
     def forward(self, x, weights):
         x = self.start(x)
         cum_skip = None
-        for layer, w in zip(self.layers, weights.chunk(len(self.dilations), 1)):
-            x, skip = layer(x, w.view(w.shape[0], 2 * self.dil_chs, self.res_chs, self.rdx, w.shape[2]))
+        for layer, w in zip(self.layers, weights.chunk(len(self.dilations), 0)):
+            x, skip = layer(x, w.view(w.shape[1], w.shape[2], 2 * self.dil_chs, self.res_chs, self.rdx))
             if cum_skip is None:
                 cum_skip = skip
             else:
@@ -658,6 +663,7 @@ class MelGlow(BaseModel):
                  bias=False):
         super().__init__()
         self.flows = flows
+        self.depth = depth
         self.n_group = n_group
         self.n_early_every = n_early_every
         self.n_early_size = n_early_size
@@ -718,7 +724,8 @@ class MelGlow(BaseModel):
         x = x.view(batch_dim, -1, self.n_group).transpose(1, 2)
         y = h[..., :x.shape[2] // self.upsample_factor]
 
-        weights = self.pred(y).chunk(self.flows, 1)
+        weights = self.pred(y)
+        weights = weights.view(weights.shape[0], self.flows * self.depth, -1, weights.shape[2]).permute(1, 0, 3, 2).contiguous().chunk(self.flows, 0)
         
         output_audio = []
         split_sections = [self.n_early_size, self.n_group]
@@ -751,7 +758,8 @@ class MelGlow(BaseModel):
         z = z.view(batch_dim, -1, self.n_group).transpose(1, 2)
         y = h[..., :z.shape[2] // self.upsample_factor]
         
-        weights = self.pred(y).chunk(self.flows, 1)
+        weights = self.pred(y)
+        weights = weights.view(weights.shape[0], self.flows * self.depth, -1, weights.shape[2]).permute(1, 0, 3, 2).contiguous().chunk(self.flows, 0)
         
         remained_z = []
         for r in z.split(self.z_split_sizes, 1):
