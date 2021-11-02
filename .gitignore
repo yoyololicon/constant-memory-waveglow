@@ -1,0 +1,4 @@
+runs/*
+saved/*
+*.pyc
+.vscode/*
