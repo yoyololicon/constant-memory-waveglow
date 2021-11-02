@@ -10,6 +10,8 @@ from trainer import Trainer
 from utils import Logger
 
 import torch_optimizer as optim
+from contiguous_params import ContiguousParams
+
 
 def get_instance(module, name, config, *args):
     return getattr(module, config[name]['type'])(*args, **config[name]['args'])
@@ -32,17 +34,20 @@ def main(config, resume):
     #metrics = [getattr(module_metric, met) for met in config['metrics']]
 
     # build optimizer, learning rate scheduler. delete every lines containing lr_scheduler for disabling scheduler
-    trainable_params = filter(lambda p: p.requires_grad, model.parameters())
+    # trainable_params = ContiguousParams(filter(lambda p: p.requires_grad, model.parameters()))
     if hasattr(torch.optim, config['optimizer']['type']):
-        optimizer = get_instance(torch.optim, 'optimizer', config, trainable_params)
+        optimizer = (getattr(torch.optim, config['optimizer']['type']), config['optimizer']['args'])
+        #optimizer = get_instance(torch.optim, 'optimizer', config, trainable_params.contiguous())
     else:
-        optimizer = get_instance(optim, 'optimizer', config, trainable_params)
+        optimizer = (getattr(optim, config['optimizer']['type']), config['optimizer']['args'])
+        #optimizer = get_instance(optim, 'optimizer', config, trainable_params.gontiguous())
     #lr_scheduler = get_instance(torch.optim.lr_scheduler, 'lr_scheduler', config, optimizer)
 
     trainer = Trainer(model, loss, optimizer,
                       resume=resume,
                       config=config,
                       data_loader=data_loader
+                      #contiguous_params=trainable_params
                       #lr_scheduler=lr_scheduler
                       )
 
