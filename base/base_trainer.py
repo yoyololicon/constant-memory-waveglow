@@ -6,6 +6,7 @@ import datetime
 import torch
 from utils.util import ensure_dir
 from utils.visualization import WriterTensorboardX
+from contiguous_params import ContiguousParams
 
 
 class BaseTrainer:
@@ -20,11 +21,13 @@ class BaseTrainer:
         # setup GPU device if available, move model into configured device
         self.device, device_ids = self._prepare_device(config['n_gpu'])
         self.model = model.to(self.device)
+        self.params = ContiguousParams(self.model.parameters())
+        self.optimizer = optimizer[0](self.params.contiguous(), **optimizer[1])
+        
         if len(device_ids) > 1:
             self.model = torch.nn.DataParallel(model, device_ids=device_ids)
 
         self.loss = loss
-        self.optimizer = optimizer
         self.amp_enabled = config['trainer']['amp']
         self.scaler = torch.cuda.amp.GradScaler(enabled=self.amp_enabled)
 

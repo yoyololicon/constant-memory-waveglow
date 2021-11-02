@@ -29,13 +29,17 @@ class Trainer(BaseTrainer):
 
             data = data.to(self.device)
 
-            self.optimizer.zero_grad(set_to_none=True)
+            self.optimizer.zero_grad(set_to_none=False)
+            #self.params.assert_buffer_is_valid() 
+
             with torch.cuda.amp.autocast(enabled=self.amp_enabled):
                 z, logdet, mels = self.model(data)
                 loss = self.loss(z, logdet)
             self.scaler.scale(loss).backward()
             self.scaler.step(self.optimizer)
             self.scaler.update()
+
+            self.params.assert_buffer_is_valid()
 
             self.writer.set_step(step)
             self.writer.add_scalar('loss', loss.item())

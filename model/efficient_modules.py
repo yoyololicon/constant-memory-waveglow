@@ -4,15 +4,12 @@ import torch.nn.functional as F
 from torch.autograd import Function, set_grad_enabled, grad, gradcheck
 from torch.cuda.amp import custom_fwd, custom_bwd
 
-from functools import reduce
-from operator import mul
-
 
 class InvertibleConv1x1(nn.Conv1d):
     def __init__(self, c, memory_efficient=False):
         super().__init__(c, c, 1, bias=False)
         W = torch.randn(c, c).qr()[0]
-        self.weight.data = W[..., None]
+        self.weight.data = W.contiguous().unsqueeze(-1)
         if memory_efficient:
             self.efficient_forward = Conv1x1Func.apply
             self.efficient_inverse = InvConv1x1Func.apply
