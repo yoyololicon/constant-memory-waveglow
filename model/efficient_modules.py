@@ -1,58 +1,73 @@
 import torch
 import torch.nn as nn
+from torch import Tensor
+from typing import Tuple
 import torch.nn.functional as F
 from torch.autograd import Function, set_grad_enabled, grad, gradcheck
 from torch.cuda.amp import custom_fwd, custom_bwd
 
+from .base import Reversible
 
-class InvertibleConv1x1(nn.Conv1d):
-    def __init__(self, c, memory_efficient=False):
-        super().__init__(c, c, 1, bias=False)
-        W = torch.randn(c, c).qr()[0]
-        self.weight.data = W.contiguous().unsqueeze(-1)
+
+__all__ = [
+    'InvertibleConv1x1', 'AffineCouplingBlock'
+]
+
+
+class InvertibleConv1x1(Reversible, nn.Conv1d):
+    def __init__(self, c, memory_efficient=False, reverse_mode=False):
+        super().__init__(in_channels=c, out_channels=c,
+                         kernel_size=1, bias=False, reverse_mode=reverse_mode)
+
+        W = torch.linalg.qr(torch.randn(c, c))[0]
+        self.weight.data[:] = W.contiguous().unsqueeze(-1)
         if memory_efficient:
-            self.efficient_forward = Conv1x1Func.apply
-            self.efficient_inverse = InvConv1x1Func.apply
+            self._efficient_forward = Conv1x1Func.apply
+            self._efficient_reverse = InvConv1x1Func.apply
 
-    def forward(self, x):
-        if hasattr(self, 'efficient_forward'):
-            z, log_det_W = self.efficient_forward(x, self.weight)
+    def forward_computation(self, x: Tensor) -> Tuple[Tensor, Tensor]:
+        if hasattr(self, '_efficient_forward'):
+            z, log_det_W = self._efficient_forward(x, self.weight)
             x.storage().resize_(0)
             return z, log_det_W
         else:
             *_, n_of_groups = x.shape
-            log_det_W = n_of_groups * self.weight.squeeze().slogdet()[1]  # should fix nan logdet
-            z = super().forward(x)
+            # should fix nan logdet
+            log_det_W = n_of_groups * self.weight.squeeze().slogdet()[1]
+            z = F.conv1d(x, self.weight)
             return z, log_det_W
 
-    def inverse(self, z):
-        if hasattr(self, 'efficient_inverse'):
-            x, log_det_W = self.efficient_inverse(z, self.weight)
+    def reverse_computation(self, z: Tensor) -> Tuple[Tensor, Tensor]:
+        if hasattr(self, '_efficient_reverse'):
+            x, log_det_W = self._efficient_reverse(z, self.weight)
             z.storage().resize_(0)
             return x, log_det_W
         else:
             weight = self.weight.squeeze()
             *_, n_of_groups = z.shape
-            log_det_W = -n_of_groups * weight.slogdet()[1]  # should fix nan logdet
+            log_det_W = -n_of_groups * \
+                weight.slogdet()[1]  # should fix nan logdet
             x = F.conv1d(z, weight.inverse().unsqueeze(-1))
             return x, log_det_W
 
 
-class AffineCouplingBlock(nn.Module):
+class AffineCouplingBlock(Reversible):
     def __init__(self,
                  transform_type,
                  memory_efficient=True,
+                 reverse_mode=False,
                  **kwargs):
-        super().__init__()
+        super().__init__(reverse_mode)
 
         self.F = transform_type(**kwargs)
         if memory_efficient:
-            self.efficient_forward = AffineCouplingFunc.apply
-            self.efficient_inverse = InvAffineCouplingFunc.apply
+            self._efficient_forward = AffineCouplingFunc.apply
+            self._efficient_reverse = InvAffineCouplingFunc.apply
 
-    def forward(self, x, y):
-        if hasattr(self, 'efficient_forward'):
-            z, log_s = self.efficient_forward(x, y, self.F, *self.F.parameters())
+    def forward_computation(self, x: Tensor, y: Tensor) -> Tuple[Tensor, Tensor]:
+        if hasattr(self, '_efficient_forward'):
+            z, log_s = self._efficient_forward(
+                x, y, self.F, *self.F.parameters())
             x.storage().resize_(0)
             return z, log_s
         else:
@@ -63,9 +78,10 @@ class AffineCouplingBlock(nn.Module):
             z = torch.cat((za, zb), 1)
             return z, log_s
 
-    def inverse(self, z, y):
-        if hasattr(self, 'efficient_inverse'):
-            x, log_s = self.efficient_inverse(z, y, self.F, *self.F.parameters())
+    def reverse_computation(self, z: Tensor, y: Tensor) -> Tuple[Tensor, Tensor]:
+        if hasattr(self, '_efficient_reverse'):
+            x, log_s = self._efficient_reverse(
+                z, y, self.F, *self.F.parameters())
             z.storage().resize_(0)
             return x, log_s
         else:
@@ -115,7 +131,7 @@ class AffineCouplingFunc(Function):
             xb = (zb - t) / s
             x.storage().resize_(xb.numel() * 2)
             torch.cat((xa, xb), 1, out=x)  # .contiguous()
-            #x.copy_(xout)  # .detach()
+            # x.copy_(xout)  # .detach()
 
         with set_grad_enabled(True):
             param_list = [xa] + list(F.parameters())
@@ -174,7 +190,7 @@ class InvAffineCouplingFunc(Function):
 
             z.storage().resize_(zb.numel() * 2)
             torch.cat((za, zb), 1, out=z)
-            #z.copy_(zout)
+            # z.copy_(zout)
 
         with set_grad_enabled(True):
             param_list = [za] + list(F.parameters())
@@ -253,7 +269,7 @@ class InvConv1x1Func(Function):
             weight_T = inv_weight.inverse().t()
             dx = F.conv1d(z_grad, weight_T.unsqueeze(-1))
             dw = z_grad.transpose(0, 1).contiguous().view(weight_T.shape[0], -1) @ \
-                 x.transpose(1, 2).contiguous().view(-1, weight_T.shape[1])
+                x.transpose(1, 2).contiguous().view(-1, weight_T.shape[1])
             dinvw = - weight_T @ dw @ weight_T
             dinvw -= weight_T * log_det_W_grad * n_of_groups
 
