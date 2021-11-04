@@ -4,7 +4,8 @@ from torch import Tensor
 import torch.nn.functional as F
 from typing import Tuple
 
-from ..utils.util import add_weight_norms
+from utils.util import add_weight_norms
+
 from .base import FlowBase
 from .efficient_modules import AffineCouplingBlock, InvertibleConv1x1
 
@@ -113,21 +114,17 @@ class WaveGlow(FlowBase):
                  n_group,
                  n_early_every,
                  n_early_size,
-                 sr,
-                 window_size,
                  hop_size,
                  n_mels,
                  memory_efficient,
+                 reverse_mode=False,
                  **kwargs):
-        super().__init__()
+        super().__init__(hop_size, reverse_mode)
         self.flows = flows
         self.n_group = n_group
         self.n_early_every = n_early_every
         self.n_early_size = n_early_size
-        self.win_size = window_size
-        self.hop_size = hop_size
         self.n_mels = n_mels
-        self.sr = sr
 
         self.upsample_factor = hop_size // n_group
         # sub_win_size = window_size // n_group
@@ -146,10 +143,10 @@ class WaveGlow(FlowBase):
                 n_remaining_channels -= n_early_size
                 self.z_split_sizes.append(n_early_size)
             self.invconv1x1.append(InvertibleConv1x1(
-                n_remaining_channels, memory_efficient=memory_efficient))
+                n_remaining_channels, memory_efficient=memory_efficient, reverse_mode=reverse_mode))
             self.WNs.append(
                 AffineCouplingBlock(WN, memory_efficient=memory_efficient, in_channels=n_remaining_channels // 2,
-                                    aux_channels=n_mels, **kwargs))
+                                    aux_channels=n_mels, reverse_mode=reverse_mode, **kwargs))
         self.z_split_sizes.append(n_remaining_channels)
 
     def forward_computation(self, x: Tensor, h: Tensor) -> Tuple[Tensor, Tensor]:
@@ -196,8 +193,8 @@ class WaveGlow(FlowBase):
         logdet: torch.Tensor = 0
         for k, invconv, affine_coup in zip(range(self.flows - 1, -1, -1), self.invconv1x1[::-1], self.WNs[::-1]):
 
-            z, log_s = affine_coup.inverse(z, y)
-            z, log_det_W = invconv.inverse(z)
+            z, log_s = affine_coup.reverse(z, y)
+            z, log_det_W = invconv.reverse(z)
 
             logdet += log_det_W + log_s.sum((1, 2))
 

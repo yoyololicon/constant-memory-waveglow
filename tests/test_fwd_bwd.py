@@ -4,8 +4,11 @@ import numpy as np
 from torch import nn
 
 from model.efficient_modules import AffineCouplingBlock, InvertibleConv1x1
-from model.model import WN
+from model.waveglow import WN
 from model.loss import WaveGlowLoss
+
+torch.backends.cuda.matmul.allow_tf32 = False
+torch.backends.cudnn.allow_tf32 = False
 
 
 def set_seed(seed):
@@ -36,16 +39,16 @@ def test_conv1x1_fwd_bwd(batch, channels, length):
 
                 if bwd:
                     xin = x.clone()
-                    y, log1 = model.inverse(xin)
+                    y, log1 = model.reverse(xin)
                     yrev = y.clone()
                     xinv, log2 = model(yrev)
                 else:
                     xin = x.clone()
                     y, log1 = model(xin)
                     yrev = y.clone()
-                    xinv, log2 = model.inverse(yrev)
+                    xinv, log2 = model.reverse(yrev)
 
-                # assert log1.item() == -log2.item()
+                assert torch.equal(log1, log2.neg())
                 loss = loss_func(y.view(batch, -1), log1)
 
                 if keep_input:
@@ -53,12 +56,12 @@ def test_conv1x1_fwd_bwd(batch, channels, length):
                     assert y.data.shape == yrev.shape
                 else:
                     assert len(xin.data.shape) == 0 \
-                           or (len(xin.data.shape) == 0 and xin.data.shape[0] == 0) \
-                           or xin.storage().size() == 0
+                        or (len(xin.data.shape) == 0 and xin.data.shape[0] == 0) \
+                        or xin.storage().size() == 0
 
                     assert len(yrev.data.shape) == 0 \
-                           or (len(yrev.data.shape) == 0 and yrev.data.shape[0] == 0) \
-                           or yrev.storage().size() == 0
+                        or (len(yrev.data.shape) == 0 and yrev.data.shape[0] == 0) \
+                        or yrev.storage().size() == 0
 
                 loss.backward()
 
@@ -83,7 +86,6 @@ def test_conv1x1_fwd_bwd(batch, channels, length):
 @pytest.mark.parametrize('aux_channels', [20, 40])
 @pytest.mark.parametrize('length', [4000])
 def test_affine_fwd_bwd(batch, channels, WN_channels, depth, aux_channels, length):
-
 
     weights = AffineCouplingBlock(WN, False, in_channels=channels // 2, aux_channels=aux_channels,
                                   zero_init=False,
@@ -117,16 +119,16 @@ def test_affine_fwd_bwd(batch, channels, WN_channels, depth, aux_channels, lengt
 
                 if bwd:
                     xin = x.clone()
-                    y, log1 = model.inverse(xin, h)
+                    y, log1 = model.reverse(xin, h)
                     yrev = y.clone()
                     xinv, log2 = model(yrev, h)
                 else:
                     xin = x.clone()
                     y, log1 = model(xin, h)
                     yrev = y.clone()
-                    xinv, log2 = model.inverse(yrev, h)
+                    xinv, log2 = model.reverse(yrev, h)
 
-                assert log1.sum().item() == -log2.sum().item()
+                assert torch.equal(log1, log2.neg())
                 loss = loss_func(y.view(2, -1), log1.sum((1, 2)))
 
                 if keep_input:
@@ -134,12 +136,12 @@ def test_affine_fwd_bwd(batch, channels, WN_channels, depth, aux_channels, lengt
                     assert y.data.shape == yrev.shape
                 else:
                     assert len(xin.data.shape) == 0 \
-                           or (len(xin.data.shape) == 0 and xin.data.shape[0] == 0) \
-                           or xin.storage().size() == 0
+                        or (len(xin.data.shape) == 0 and xin.data.shape[0] == 0) \
+                        or xin.storage().size() == 0
 
                     assert len(yrev.data.shape) == 0 \
-                           or (len(yrev.data.shape) == 0 and yrev.data.shape[0] == 0) \
-                           or yrev.storage().size() == 0
+                        or (len(yrev.data.shape) == 0 and yrev.data.shape[0] == 0) \
+                        or yrev.storage().size() == 0
                     assert h.shape == condition.shape
                     assert torch.allclose(h.cpu(), condition)
 
@@ -164,7 +166,6 @@ def test_affine_fwd_bwd(batch, channels, WN_channels, depth, aux_channels, lengt
 @pytest.mark.parametrize('length', [2000])
 def test_complx_chained(batch, channels, length):
 
-
     model1 = nn.ModuleList([InvertibleConv1x1(channels, True),
                             InvertibleConv1x1(channels, False),
                             InvertibleConv1x1(channels, True)])
@@ -188,7 +189,7 @@ def test_complx_chained(batch, channels, length):
             xin = x.clone()
             logdet = 0
             for layer in model:
-                xin, _ = layer.inverse(xin)
+                xin, _ = layer.reverse(xin)
                 logdet = logdet + _
 
             loss = loss_func(xin.view(batch, -1), logdet)
