@@ -1,84 +1,78 @@
 import os
 import json
 import argparse
+
 import torch
 import data_loader.data_loaders as module_data
 import model.loss as module_loss
-import model.metric as module_metric
-import model.model as module_arch
-from trainer import Trainer
-from utils import Logger
+import model as module_arch
+from torch.utils.data import DataLoader
 
-import torch_optimizer as optim
-from contiguous_params import ContiguousParams
+import pytorch_lightning as pl
+import torchaudio
+
+
+from model import Conditioner, LightModel
 
 
 def get_instance(module, name, config, *args):
     return getattr(module, config[name]['type'])(*args, **config[name]['args'])
 
-def main(config, resume):
-    #train_logger = Logger()
 
-    # setup data_loader instances
-    steps = config['trainer']['steps']
-    data_loader = get_instance(module_data, 'data_loader', config, steps)
-    #valid_data_loader = data_loader.split_validation()
+class TestFileCallBack(pl.Callback):
+    def __init__(self, test_file: str) -> None:
+        super().__init__()
 
-    # build model architecture
+        y, sr = torchaudio.load(test_file)
+        self.test_y = y.mean(0)
+        self.sr = sr
+
+        self._std = 0
+        self._n = 0
+
+    def on_train_batch_end(self, trainer: pl.Trainer, pl_module: pl.LightningModule, outputs, batch, batch_idx: int, unused=0) -> None:
+        self._n += 1
+        self._std += (outputs['z_std'].item() - self._std) / self._n
+
+    def on_train_epoch_end(self, trainer: pl.Trainer, pl_module: LightModel) -> None:
+        if self._n == 0:
+            return
+        y = self.test_y.to(pl_module.device)
+        cond = pl_module.conditioner(y)
+        pred = pl_module(cond, self._std).cpu()
+
+        trainer.logger.experiment.add_audio(
+            'reconstruct_audio', pred[:, None], sample_rate=self.sr)
+
+        self._std = 0
+        self._n = 0
+
+
+def main(args, config):
+    pl.seed_everything(args.seed)
+
+    train_data = get_instance(module_data, config['dataset'])
+    train_loader = DataLoader(train_data, **config['data_loader'])
     model = get_instance(module_arch, 'arch', config)
-    model.summary()
-
-    # get function handles of loss and metrics
-    #loss = getattr(module_loss, config['loss'])
+    conditioner = Conditioner(**config['conditioner'])
     loss = get_instance(module_loss, 'loss', config)
-    #metrics = [getattr(module_metric, met) for met in config['metrics']]
+    lit_model = LightModel(model, conditioner, loss, config['lightning'])
 
-    # build optimizer, learning rate scheduler. delete every lines containing lr_scheduler for disabling scheduler
-    # trainable_params = ContiguousParams(filter(lambda p: p.requires_grad, model.parameters()))
-    if hasattr(torch.optim, config['optimizer']['type']):
-        optimizer = (getattr(torch.optim, config['optimizer']['type']), config['optimizer']['args'])
-        #optimizer = get_instance(torch.optim, 'optimizer', config, trainable_params.contiguous())
-    else:
-        optimizer = (getattr(optim, config['optimizer']['type']), config['optimizer']['args'])
-        #optimizer = get_instance(optim, 'optimizer', config, trainable_params.gontiguous())
-    #lr_scheduler = get_instance(torch.optim.lr_scheduler, 'lr_scheduler', config, optimizer)
+    trainer = pl.Trainer.from_argparse_args(
+        args, callbacks=[TestFileCallBack(
+            args.test_file)] if args.test_file else None,
+        benchmark=True, detect_anomaly=True)
+    trainer.fit(lit_model, train_loader, ckpt_path=args.ckpt_path)
 
-    trainer = Trainer(model, loss, optimizer,
-                      resume=resume,
-                      config=config,
-                      data_loader=data_loader
-                      #contiguous_params=trainable_params
-                      #lr_scheduler=lr_scheduler
-                      )
-
-    trainer.train()
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='PyTorch WaveGlow')
-    parser.add_argument('-c', '--config', default=None, type=str,
-                           help='config file path (default: None)')
-    parser.add_argument('-r', '--resume', default=None, type=str,
-                           help='path to latest checkpoint (default: None)')
-    parser.add_argument('-d', '--device', default=None, type=str,
-                           help='indices of GPUs to enable (default: all)')
-    parser.add_argument('--lr', default=None, type=float)
+    parser.add_argument('config', type=str,
+                        help='config file path (default: None)')
+    parser.add_argument('--ckpt_path', type=str)
+    parser.add_argument('--test_file', type=str)
+    parser.add_argument('--seed', type=int, default=None)
     args = parser.parse_args()
 
-    if args.config:
-        # load config file
-        config = json.load(open(args.config))
-        path = os.path.join(config['trainer']['save_dir'], config['name'])
-    elif args.resume:
-        # load config file from checkpoint, in case new config file is not given.
-        # Use '--config' and '--resume' arguments together to load trained model and train more with changed config.
-        config = torch.load(args.resume)['config']
-    else:
-        raise AssertionError("Configuration file need to be specified. Add '-c config.json', for example.")
-    
-    if args.lr:
-        config['optimizer']['args']['lr'] = args.lr
-    
-    if args.device:
-        os.environ["CUDA_VISIBLE_DEVICES"]=args.device
-
-    main(config, args.resume)
+    config = json.load(open(args.config))
+    main(args, config)
