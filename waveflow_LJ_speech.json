@@ -1,63 +1,57 @@
 {
-  "name": "PyTorch WaveFlow",
-  "n_gpu": 1,
-  "arch": {
-    "type": "WaveFlow",
-    "args": {
-      "flows": 8,
-      "n_group": 64,
-      "sr": 22050,
-      "window_size": 1024,
-      "n_mels": 80,
-      "use_conv1x1": false,
-      "memory_efficient": false,
-      "dilation_channels": 64,
-      "residual_channels": 64,
-      "skip_channels": 64,
-      "bias": false
+    "name": "PyTorch WaveFlow",
+    "arch": {
+        "type": "WaveFlow",
+        "args": {
+            "flows": 8,
+            "n_group": 64,
+            "n_mels": 80,
+            "use_conv1x1": false,
+            "memory_efficient": false,
+            "reverse_mode": false,
+            "dilation_channels": 64,
+            "residual_channels": 64,
+            "skip_channels": 64,
+            "bias": false
+        }
+    },
+    "dataset": {
+        "type": "RandomWAVDataset",
+        "args": {
+            "data_dir": "~/data-disk/Datasets/LJSpeech-1.1/wavs/",
+            "size": 120000,
+            "segment": 16000
+        }
+    },
+    "data_loader": {
+        "batch_size": 12,
+        "shuffle": true,
+        "num_workers": 4,
+        "prefetch_factor": 4,
+        "pin_memory": true
+    },
+    "optimizer": {
+        "type": "Adam",
+        "args": {
+            "lr": 0.0002,
+            "weight_decay": 0
+        }
+    },
+    "loss": {
+        "type": "WaveGlowLoss",
+        "args": {
+            "sigma": 0.7,
+            "elementwise_mean": true
+        }
+    },
+    "conditioner": {
+        "type": "MelSpec",
+        "args": {
+            "sr": 22050,
+            "n_fft": 1024,
+            "hop_length": 256,
+            "f_max": 8000,
+            "n_mels": 80
+        }
     }
-  },
-  "data_loader": {
-    "type": "RandomWaveFileLoader",
-    "args": {
-      "data_dir": "~/Datasets/LJSpeech-1.1/wavs",
-      "batch_size": 4,
-      "num_workers": 1,
-      "segment": 16000
-    }
-  },
-  "optimizer": {
-    "type": "Adam",
-    "args": {
-      "lr": 2e-4
-    }
-  },
-  "loss": {
-    "type": "WaveGlowLoss",
-    "args": {
-      "sigma": 0.7,
-      "elementwise_mean": true
-    }
-  },
-  "metrics": [
-  ],
-  "lr_scheduler": {
-    "type": "StepLR",
-    "args": {
-      "step_size": 800000000,
-      "gamma": 0.5
-    }
-  },
-  "trainer": {
-    "steps": 300000,
-    "save_dir": "saved",
-    "save_freq": 10000,
-    "verbosity": 2,
-    "amp": true,
-    "inference": false
-  },
-  "visualization": {
-    "tensorboardX": true,
-    "log_dir": "runs"
-  }
 }

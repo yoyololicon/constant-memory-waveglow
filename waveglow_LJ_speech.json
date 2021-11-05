@@ -1,8 +1,7 @@
 {
-    "name": "PyTorch MelGlow",
-    "n_gpu": 1,
+    "name": "PyTorch WaveGlow",
     "arch": {
-        "type": "MelGlow",
+        "type": "WaveGlow",
         "args": {
             "flows": 12,
             "n_group": 8,
@@ -10,14 +9,13 @@
             "n_early_size": 2,
             "hop_size": 256,
             "n_mels": 80,
+            "memory_efficient": true,
             "reverse_mode": false,
-            "dilation_channels": 48,
-            "residual_channels": 48,
-            "skip_channels": 48,
-            "depth": 7,
+            "dilation_channels": 256,
+            "residual_channels": 256,
+            "skip_channels": 256,
+            "depth": 8,
             "radix": 3,
-            "predict_channels": 64,
-            "predict_layers": 3,
             "bias": false
         }
     },
@@ -25,19 +23,23 @@
         "type": "RandomWAVDataset",
         "args": {
             "data_dir": "~/data-disk/Datasets/LJSpeech-1.1/wavs/",
-            "size": 80000,
-            "segment": 22016
+            "size": 240000,
+            "segment": 16000
         }
     },
     "data_loader": {
-        "batch_size": 8,
+        "batch_size": 24,
         "shuffle": true,
         "num_workers": 4,
-        "prefetch_factor": 4,
+        "prefetch_factor": 6,
         "pin_memory": true
     },
-    "lightning": {
-        "lr": 1e-4
+    "optimizer": {
+        "type": "Adam",
+        "args": {
+            "lr": 0.0001,
+            "weight_decay": 0
+        }
     },
     "loss": {
         "type": "WaveGlowLoss",
@@ -47,11 +49,13 @@
         }
     },
     "conditioner": {
-        "sr": 22050,
-        "n_fft": 1024,
-        "hop_length": 256,
-        "f_min": 60,
-        "f_max": 7600,
-        "n_mels": 80
+        "type": "MelSpec",
+        "args": {
+            "sr": 22050,
+            "n_fft": 1024,
+            "hop_length": 256,
+            "f_max": 8000,
+            "n_mels": 80
+        }
     }
 }
