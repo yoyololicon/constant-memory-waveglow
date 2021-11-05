@@ -4,7 +4,7 @@ from torch import Tensor
 from typing import Tuple
 import torch.nn.functional as F
 
-from utils.util import add_weight_norms
+from utils import add_weight_norms
 from .base import FlowBase
 from .waveglow import fused_gate
 from .efficient_modules import AffineCouplingBlock, InvertibleConv1x1
