@@ -98,13 +98,10 @@ class WN(nn.Module):
 
     def forward(self, x, y):
         x = self.start(x)
-        cum_skip = None
+        cum_skip = 0
         for layer in self.layers:
             x, skip = layer(x, y)
-            if cum_skip is None:
-                cum_skip = skip
-            else:
-                cum_skip = cum_skip + skip
+            cum_skip = cum_skip + skip
         return self.end(cum_skip).chunk(2, 1)
 
 
