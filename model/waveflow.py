@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 import torch.nn.functional as F
+from torch.cuda.amp import autocast
 from typing import Tuple
 
 from utils import add_weight_norms
@@ -258,5 +259,6 @@ class WaveFlow(FlowBase):
         z = z.squeeze(1).transpose(1, 2).contiguous().view(batch_dim, -1)
         return z, logdet
 
+    @autocast(enabled=False)
     def _upsample_h(self, h):
-        return self.upsampler(h)
+        return self.upsampler(h.float())
