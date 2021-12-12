@@ -9,7 +9,7 @@ import model as module_arch
 from .base import FlowBase
 import model.condition as module_condition
 import model.loss as module_loss
-import data_loader.data_loaders as module_data
+import datasets as module_data
 from utils import get_instance
 
 
