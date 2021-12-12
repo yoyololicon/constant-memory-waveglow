@@ -1,0 +1,3 @@
+[submodule "pytorch-wav-datasets"]
+	path = pytorch-wav-datasets
+	url = https://github.com/yoyololicon/pytorch-wav-datasets
