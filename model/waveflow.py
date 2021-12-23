@@ -15,7 +15,6 @@ class NonCausalLayer2D(nn.Module):
     def __init__(self,
                  h_dilation,
                  dilation,
-                 aux_channels,
                  dilation_channels,
                  residual_channels,
                  skip_channels,
@@ -25,9 +24,6 @@ class NonCausalLayer2D(nn.Module):
         super().__init__()
         self.h_pad_size = h_dilation * (radix - 1)
         self.pad_size = dilation * (radix - 1) // 2
-
-        self.V = nn.Conv1d(aux_channels, dilation_channels * 2, radix,
-                           dilation=dilation, padding=self.pad_size, bias=bias)
 
         self.W = nn.Conv2d(residual_channels, dilation_channels * 2,
                            kernel_size=radix,
@@ -44,9 +40,8 @@ class NonCausalLayer2D(nn.Module):
 
     def forward(self, x, y):
         tmp = F.pad(x, [self.pad_size] * 2 + [self.h_pad_size, 0])
-        xy = self.W(tmp) + self.V(y).unsqueeze(2)
+        xy = self.W(tmp) + y
         zw, zf = xy.chunk(2, 1)
-        # z = zw.tanh().mul(zf.sigmoid())
         z = fused_gate(zw, zf)
         *z, skip = self.W_o(z).split(self.chs_split, 1)
         if len(z):
@@ -61,7 +56,7 @@ class NonCausalLayer2D(nn.Module):
         else:
             buffer = torch.cat((buffer[:, :, 1:], x), 2)
         tmp = F.pad(buffer, [self.pad_size] * 2)
-        xy = self.W(tmp) + self.V(y).unsqueeze(2)
+        xy = self.W(tmp) + y
         zw, zf = xy.chunk(2, 1)
         z = fused_gate(zw, zf)
         *z, skip = self.W_o(z).split(self.chs_split, 1)
@@ -102,18 +97,20 @@ class WN2D(nn.Module):
         self.r_field = sum(self.dilations) * 2 + 1
         self.h_r_field = sum(self.h_dilations) * 2 + 1
 
+        self.V = nn.Conv1d(aux_channels, dilation_channels *
+                           2 * 8, 1, bias=bias)
+        self.V.apply(add_weight_norms)
+
         self.start = nn.Conv2d(1, residual_channels, 1, bias=bias)
         self.start.apply(add_weight_norms)
 
         self.layers = nn.ModuleList(NonCausalLayer2D(hd, d,
-                                                     aux_channels,
                                                      dilation_channels,
                                                      residual_channels,
                                                      skip_channels,
                                                      3,
                                                      bias) for hd, d in zip(self.h_dilations[:-1], self.dilations[:-1]))
         self.layers.append(NonCausalLayer2D(self.h_dilations[-1], self.dilations[-1],
-                                            aux_channels,
                                             dilation_channels,
                                             residual_channels,
                                             skip_channels,
@@ -130,25 +127,28 @@ class WN2D(nn.Module):
 
     def forward(self, x, y):
         x = self.start(x)
+        y = self.V(y).unsqueeze(2)
         cum_skip = 0
-        for layer in self.layers:
-            x, skip = layer(x, y)
+        for layer, v in zip(self.layers, y.chunk(len(self.layers), 1)):
+            x, skip = layer(x, v)
             cum_skip = cum_skip + skip
         return self.end(cum_skip).chunk(2, 1)
 
-    def reverse_mode_forward(self, x, y, buffer_list=None):
+    def reverse_mode_forward(self, x, y=None, cond=None, buffer_list=None):
         x = self.start(x)
         new_buffer_list = []
         if buffer_list is None:
             buffer_list = [None] * len(self.layers)
+        if cond is None:
+            cond = self.V(y).unsqueeze(2).chunk(len(self.layers), 1)
 
         cum_skip = 0
-        for layer, buf in zip(self.layers, buffer_list):
-            x, skip, buf = layer.reverse_mode_forward(x, y, buf)
+        for layer, buf, v in zip(self.layers, buffer_list, cond):
+            x, skip, buf = layer.reverse_mode_forward(x, v, buf)
             new_buffer_list.append(buf)
             cum_skip = cum_skip + skip
 
-        return self.end(cum_skip).chunk(2, 1) + (new_buffer_list,)
+        return self.end(cum_skip).chunk(2, 1) + (cond, new_buffer_list,)
 
 
 class WaveFlow(FlowBase):
@@ -169,7 +169,7 @@ class WaveFlow(FlowBase):
         self.upsampler = nn.Sequential(
             nn.ReplicationPad1d((0, 1)),
             nn.ConvTranspose1d(n_mels, n_mels, self.sub_sr *
-                               2 + 1, self.sub_sr, padding=self.sub_sr),
+                               2 + 1, self.sub_sr, padding=self.sub_sr // 2),
             nn.LeakyReLU(0.4, True)
         )
         self.upsampler.apply(add_weight_norms)
@@ -200,7 +200,7 @@ class WaveFlow(FlowBase):
             invconv1x1 = [None] * self.flows
 
         logdet: Tensor = 0
-        for k, (WN, invconv) in enumerate(zip(self.WNs, invconv1x1)):
+        for WN, invconv in zip(self.WNs, invconv1x1):
             x0 = x[:, :, :1]
             log_s, t = WN(x[:, :, :-1], y)
             xout = x[:, :, 1:] * log_s.exp() + t
@@ -229,7 +229,7 @@ class WaveFlow(FlowBase):
             invconv1x1 = [None] * self.flows
 
         logdet: Tensor = None
-        for k, WN, invconv in zip(range(self.flows - 1, -1, -1), self.WNs[::-1], invconv1x1[::-1]):
+        for WN, invconv in zip(self.WNs[::-1], invconv1x1[::-1]):
             if invconv is None:
                 z = z.flip(2)
             else:
@@ -244,9 +244,10 @@ class WaveFlow(FlowBase):
             x = [xnew]
 
             buffer_list = None
+            cond = None
             for i in range(1, self.n_group):
-                log_s, t, buffer_list = WN.reverse_mode_forward(
-                    xnew, y, buffer_list)
+                log_s, t, cond, buffer_list = WN.reverse_mode_forward(
+                    xnew, y if cond is None else None, cond, buffer_list)
                 xnew = (z[:, :, i:i+1] - t) / log_s.exp()
                 x.append(xnew)
 

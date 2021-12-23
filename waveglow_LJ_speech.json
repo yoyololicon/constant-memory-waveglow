@@ -23,7 +23,7 @@
         "type": "RandomWAVDataset",
         "args": {
             "data_dir": "~/data-disk/Datasets/LJSpeech-1.1/wavs/",
-            "size": 240000,
+            "size": 24000,
             "segment": 16000
         }
     },

@@ -19,7 +19,8 @@ class InvertibleConv1x1(Reversible, nn.Conv1d):
         super().__init__(in_channels=c, out_channels=c,
                          kernel_size=1, bias=False, reverse_mode=reverse_mode)
 
-        W = torch.linalg.qr(torch.randn(c, c))[0]
+        # W = torch.linalg.qr(torch.randn(c, c))[0]
+        W = torch.eye(c).flip(0)
         self.weight.data[:] = W.contiguous().unsqueeze(-1)
         if memory_efficient:
             self._efficient_forward = Conv1x1Func.apply
@@ -233,7 +234,7 @@ class Conv1x1Func(Function):
             x.storage().resize_(z.numel())
             x[:] = F.conv1d(z, inv_weight.unsqueeze(-1))
 
-            dx = F.conv1d(z_grad, weight[..., 0].t().unsqueeze(-1))
+            dx = F.conv1d(z_grad, weight.transpose(0, 1))
             dw = z_grad.transpose(0, 1).contiguous().view(weight.shape[0], -1) @ x.transpose(1, 2).contiguous().view(
                 -1, weight.shape[1])
             dw += inv_weight.t() * log_det_W_grad * n_of_groups
