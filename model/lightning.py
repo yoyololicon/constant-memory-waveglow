@@ -56,12 +56,12 @@ class LightModel(pl.LightningModule):
         loss = self.criterion(z, logdet)
 
         values = {
-            'loss': loss,
-            'logdet': logdet.mean(),
+            'logdet': logdet.sum() / z.numel(),
             'z_mean': z.mean(),
             'z_std': z.std()
         }
         self.log_dict(values, prog_bar=True, sync_dist=True)
+        self.log('loss', loss, prog_bar=False, sync_dist=True)
         return loss
 
     def forward(self, *args, **kwargs):

@@ -127,6 +127,7 @@ class WaveGlow(FlowBase):
         sub_win_size = self.upsample_factor * 2 + 1
         self.upsampler = nn.ConvTranspose1d(n_mels, n_mels, sub_win_size, self.upsample_factor,
                                             padding=sub_win_size // 2 - self.upsample_factor // 2, groups=n_mels)
+        self.upsampler.apply(add_weight_norms)
 
         self.invconv1x1 = nn.ModuleList()
         self.WNs = nn.ModuleList()
@@ -149,7 +150,7 @@ class WaveGlow(FlowBase):
     def forward_computation(self, x: Tensor, h: Tensor) -> Tuple[Tensor, Tensor]:
         y = self._upsample_h(h)
         batch_dim = x.size(0)
-        x = x.view(batch_dim, -1, self.n_group).transpose(1, 2)
+        x = x.view(batch_dim, -1, self.n_group).transpose(1, 2).contiguous()
         # y = y.view(batch_dim, y.size(1), -1, self.n_group).transpose(2, 3)
         # y = y.reshape(batch_dim, -1, y.size(-1))
         assert x.size(2) <= y.size(2)
@@ -180,7 +181,7 @@ class WaveGlow(FlowBase):
     def reverse_computation(self, z: Tensor, h: Tensor) -> Tuple[Tensor, Tensor]:
         y = self._upsample_h(h)
         batch_dim = z.size(0)
-        z = z.view(batch_dim, -1, self.n_group).transpose(1, 2)
+        z = z.view(batch_dim, -1, self.n_group).transpose(1, 2).contiguous()
         # y = y.view(batch_dim, y.size(1), -1, self.n_group).transpose(2, 3)
         # y = y.reshape(batch_dim, -1, y.size(-1))
         assert z.size(2) <= y.size(2)

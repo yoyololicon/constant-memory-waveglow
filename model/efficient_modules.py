@@ -19,8 +19,10 @@ class InvertibleConv1x1(Reversible, nn.Conv1d):
         super().__init__(in_channels=c, out_channels=c,
                          kernel_size=1, bias=False, reverse_mode=reverse_mode)
 
-        # W = torch.linalg.qr(torch.randn(c, c))[0]
-        W = torch.eye(c).flip(0)
+        W = torch.linalg.qr(torch.randn(c, c))[0]
+        if torch.det(W) < 0:
+            W[:, 0] = -W[:, 0]
+        # W = torch.eye(c).flip(0)
         self.weight.data[:] = W.contiguous().unsqueeze(-1)
         if memory_efficient:
             self._efficient_forward = Conv1x1Func.apply
@@ -34,7 +36,7 @@ class InvertibleConv1x1(Reversible, nn.Conv1d):
         else:
             *_, n_of_groups = x.shape
             # should fix nan logdet
-            log_det_W = n_of_groups * self.weight.squeeze().slogdet()[1]
+            log_det_W = n_of_groups * self.weight.squeeze().logdet()
             z = F.conv1d(x, self.weight)
             return z, log_det_W
 
@@ -47,7 +49,7 @@ class InvertibleConv1x1(Reversible, nn.Conv1d):
             weight = self.weight.squeeze()
             *_, n_of_groups = z.shape
             log_det_W = -n_of_groups * \
-                weight.slogdet()[1]  # should fix nan logdet
+                weight.logdet()  # should fix nan logdet
             x = F.conv1d(z, weight.inverse().unsqueeze(-1))
             return x, log_det_W
 
@@ -216,7 +218,7 @@ class Conv1x1Func(Function):
     def forward(ctx, x, weight):
         with torch.no_grad():
             *_, n_of_groups = x.shape
-            log_det_W = weight.squeeze().slogdet()[1]
+            log_det_W = weight.squeeze().logdet()
             log_det_W *= n_of_groups
             z = F.conv1d(x, weight)
 
@@ -249,7 +251,7 @@ class InvConv1x1Func(Function):
         with torch.no_grad():
             sqr_inv_weight = inv_weight.squeeze()
             *_, n_of_groups = x.shape
-            log_det_W = -sqr_inv_weight.slogdet()[1]
+            log_det_W = -sqr_inv_weight.logdet()
             log_det_W *= n_of_groups
             z = F.conv1d(x, sqr_inv_weight.inverse().unsqueeze(-1))
 

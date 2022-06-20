@@ -32,11 +32,11 @@ class Predictor(nn.Module):
         self.res_blocks = nn.ModuleList([
             nn.Sequential(
                 nn.Conv1d(hidden_channels * groups, hidden_channels *
-                          groups, 3, padding=1, bias=bias, groups=groups),
+                          groups, 1, bias=bias, groups=groups),
                 nn.BatchNorm1d(hidden_channels * groups),
                 nn.Tanh(),
                 nn.Conv1d(hidden_channels * groups, hidden_channels *
-                          groups, 3, padding=1, bias=bias, groups=groups),
+                          groups, 1, bias=bias, groups=groups),
                 nn.BatchNorm1d(hidden_channels * groups),
                 nn.Tanh()
             ) for _ in range(layers)
@@ -93,10 +93,13 @@ class NonCausalLayerLVC(nn.Module):
 class WN_LVC(nn.Module):
     def __init__(self,
                  in_channels,
+                 aux_channels,
                  depth,
                  dilation_channels,
                  residual_channels,
                  skip_channels,
+                 predict_channels,
+                 predict_layers,
                  radix,
                  bias,
                  zero_init=True):
@@ -126,6 +129,7 @@ class WN_LVC(nn.Module):
                                              radix,
                                              bias,
                                              last_layer=True))
+        self.layers.apply(add_weight_norms)
 
         self.end = nn.Conv1d(skip_channels, in_channels * 2, 1, bias=bias)
         if zero_init:
@@ -133,8 +137,20 @@ class WN_LVC(nn.Module):
             if bias:
                 self.end.bias.data.zero_()
 
-    def forward(self, x, weights):
+        self.pred = Predictor(
+            aux_channels,
+            2 * dilation_channels * residual_channels * radix,
+            predict_channels,
+            predict_layers,
+            bias,
+            depth
+        )
+
+    def forward(self, x, y):
         x = self.start(x)
+        weights = self.pred(y)
+        weights = weights.view(weights.shape[0], len(self.dilations), -1,
+                               weights.shape[2]).permute(1, 0, 3, 2).contiguous()
         cum_skip = 0
         for layer, w in zip(self.layers, weights.chunk(len(self.dilations), 0)):
             x, skip = layer(
@@ -151,22 +167,16 @@ class MelGlow(FlowBase):
                  n_early_size,
                  hop_size,
                  n_mels,
-                 depth=7,
-                 dilation_channels=32,
-                 residual_channels=32,
-                 skip_channels=32,
-                 radix=3,
-                 predict_channels=64,
-                 predict_layers=3,
+                 memory_efficient,
                  reverse_mode=False,
-                 bias=False):
+                 **kwargs):
         super().__init__(hop_size, reverse_mode=reverse_mode)
         self.flows = flows
-        self.depth = depth
         self.n_group = n_group
         self.n_early_every = n_early_every
         self.n_early_size = n_early_size
         self.n_mels = n_mels
+        self.mem_efficient = memory_efficient
 
         self.upsample_factor = self._hop_length // n_group
 
@@ -182,26 +192,13 @@ class MelGlow(FlowBase):
                 n_remaining_channels -= n_early_size
                 self.z_split_sizes.append(n_early_size)
             self.invconv1x1.append(InvertibleConv1x1(
-                n_remaining_channels, memory_efficient=False, reverse_mode=reverse_mode))
+                n_remaining_channels, memory_efficient=memory_efficient, reverse_mode=reverse_mode))
             self.WNs.append(
-                AffineCouplingBlock(WN_LVC, memory_efficient=False, reverse_mode=reverse_mode,
+                AffineCouplingBlock(WN_LVC, memory_efficient=memory_efficient, reverse_mode=reverse_mode,
                                     in_channels=n_remaining_channels // 2,
-                                    depth=depth,
-                                    dilation_channels=dilation_channels,
-                                    residual_channels=residual_channels,
-                                    skip_channels=skip_channels,
-                                    radix=radix,
-                                    bias=bias))
+                                    aux_channels=n_mels,
+                                    **kwargs))
         self.z_split_sizes.append(n_remaining_channels)
-
-        self.pred = Predictor(
-            n_mels,
-            2 * dilation_channels * residual_channels * radix,
-            predict_channels,
-            predict_layers,
-            bias,
-            flows * depth
-        )
 
     def forward_computation(self, x: Tensor, h: Tensor) -> Tuple[Tensor, Tensor]:
         batch_dim = x.size(0)
@@ -209,26 +206,22 @@ class MelGlow(FlowBase):
         x = x.view(batch_dim, -1, self.n_group).transpose(1, 2)
         y = h[..., :x.shape[2] // self.upsample_factor]
 
-        weights = self.pred(y)
-        weights = weights.view(weights.shape[0], self.flows * self.depth, -1,
-                               weights.shape[2]).permute(1, 0, 3, 2).contiguous().chunk(self.flows, 0)
-
         output_audio = []
         split_sections = [self.n_early_size, self.n_group]
 
         logdet: Tensor = 0
-        for k, (invconv, affine_coup, lvc_weights) in enumerate(zip(self.invconv1x1,
-                                                                    self.WNs,
-                                                                    weights)):
+        for k, (invconv, affine_coup) in enumerate(zip(self.invconv1x1,
+                                                       self.WNs)):
             if k % self.n_early_every == 0 and k:
                 split_sections[1] -= self.n_early_size
                 early_output, x = x.split(split_sections, 1)
                 # these 2 lines actually copy tensors, may need optimization in the future
                 output_audio.append(early_output)
-                x = x.clone()
+                if self.mem_efficient:
+                    x = x.clone()
 
             x, log_det_W = invconv(x)
-            x, log_s = affine_coup(x, lvc_weights)
+            x, log_s = affine_coup(x, y)
 
             logdet += log_det_W + log_s.sum((1, 2))
 
@@ -242,22 +235,18 @@ class MelGlow(FlowBase):
         z = z.view(batch_dim, -1, self.n_group).transpose(1, 2)
         y = h[..., :z.shape[2] // self.upsample_factor]
 
-        weights = self.pred(y)
-        weights = weights.view(weights.shape[0], self.flows * self.depth, -1,
-                               weights.shape[2]).permute(1, 0, 3, 2).contiguous().chunk(self.flows, 0)
-
-        remained_z = []
-        for r in z.split(self.z_split_sizes, 1):
-            remained_z.append(r.clone())
+        if self.mem_efficient:
+            remained_z = [r.clone() for r in z.split(self.z_split_sizes, 1)]
+        else:
+            remained_z = z.split(self.z_split_sizes, 1)
         *remained_z, z = remained_z
 
         logdet: Tensor = 0
-        for k, invconv, affine_coup, lvc_weights in zip(range(self.flows - 1, -1, -1),
-                                                        self.invconv1x1[::-1],
-                                                        self.WNs[::-1],
-                                                        weights[::-1]):
+        for k, invconv, affine_coup in zip(range(self.flows - 1, -1, -1),
+                                           self.invconv1x1[::-1],
+                                           self.WNs[::-1]):
 
-            z, log_s = affine_coup.reverse(z, lvc_weights)
+            z, log_s = affine_coup.reverse(z, y)
             z, log_det_W = invconv.reverse(z)
 
             logdet += log_det_W + log_s.sum((1, 2))
