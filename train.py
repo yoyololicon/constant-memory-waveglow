@@ -26,8 +26,9 @@ class TestFileCallBack(pl.Callback):
         if not trainer.is_global_zero:
             return
         y = self.test_y.to(pl_module.device).unsqueeze(0)
-        cond = pl_module.conditioner(y)
-        pred = pl_module(cond, 0.7).cpu()
+        with torch.no_grad():
+            cond = pl_module.conditioner(y)
+            pred = pl_module(cond, 0.7).cpu()
 
         trainer.logger.experiment.add_audio(
             'reconstruct_audio', pred[:, None], sample_rate=self.sr, global_step=trainer.global_step)
@@ -61,14 +62,17 @@ def main(args, config):
     if args.lr:
         callbacks.append(ChangeLRCallback(args.lr))
 
-    if args.ckpt_path and config is None:
-        lit_model = LightModel.load_from_checkpoint(args.ckpt_path)
+    if args.ckpt_path:
+        kwargs = {}
+        if config is not None:
+            kwargs['config'] = config
+        lit_model = LightModel.load_from_checkpoint(args.ckpt_path, **kwargs)
     else:
         lit_model = LightModel(config)
 
     trainer = pl.Trainer.from_argparse_args(
         args, callbacks=callbacks, log_every_n_steps=1,
-        benchmark=False, detect_anomaly=True, gpus=gpus,
+        benchmark=True, detect_anomaly=True, gpus=gpus,
         strategy=DDPPlugin(find_unused_parameters=False) if gpus > 1 else None)
     trainer.fit(lit_model, ckpt_path=args.ckpt_path)
 
