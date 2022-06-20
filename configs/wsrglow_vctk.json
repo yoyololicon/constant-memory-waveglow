@@ -1,0 +1,50 @@
+{
+    "name": "PyTorch WSRGlow",
+    "arch": {
+        "type": "WSRGlow",
+        "args": {
+            "upsample_rate": 2,
+            "memory_efficient": false
+        }
+    },
+    "dataset": {
+        "type": "RandomWAVDataset",
+        "args": {
+            "data_dir": "~/data-disk/Datasets/VCTK-Corpus-0.92/wav48_silence_trimmed/train/",
+            "size": 12000,
+            "segment": 8192,
+            "deterministic": false
+        }
+    },
+    "data_loader": {
+        "batch_size": 12,
+        "shuffle": false,
+        "num_workers": 4,
+        "prefetch_factor": 6,
+        "pin_memory": true
+    },
+    "optimizer": {
+        "type": "Adam",
+        "args": {
+            "lr": 0.0001,
+            "betas": [
+                0.9,
+                0.98
+            ],
+            "weight_decay": 0
+        }
+    },
+    "loss": {
+        "type": "WaveGlowLoss",
+        "args": {
+            "sigma": 1.0,
+            "elementwise_mean": true
+        }
+    },
+    "conditioner": {
+        "type": "STFTDecimate",
+        "args": {
+            "r": 2
+        }
+    }
+}
