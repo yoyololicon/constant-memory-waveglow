@@ -46,7 +46,8 @@ class LowPass(nn.Module):
                           self.hop,
                           window=self.window,
                           )  # return_complex=False)  #[B, F, TT,2]
-        stft *= self.filters[r].view(*stft.shape[0:2], 1, 1)
+
+        stft = stft * self.filters[r][:, None, None]
         x = torch.istft(stft,
                         self.nfft,
                         self.hop,
