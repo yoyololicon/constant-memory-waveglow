@@ -1,6 +1,5 @@
 {
     "name": "PyTorch MelGlow",
-    "n_gpu": 1,
     "arch": {
         "type": "MelGlow",
         "args": {
@@ -11,6 +10,7 @@
             "hop_size": 256,
             "n_mels": 80,
             "reverse_mode": false,
+            "memory_efficient": true,
             "dilation_channels": 48,
             "residual_channels": 48,
             "skip_channels": 48,
@@ -25,7 +25,7 @@
         "type": "RandomWAVDataset",
         "args": {
             "data_dir": "~/data-disk/Datasets/LJSpeech-1.1/wavs/",
-            "size": 80000,
+            "size": 8000,
             "segment": 22016
         }
     },
@@ -36,8 +36,11 @@
         "prefetch_factor": 4,
         "pin_memory": true
     },
-    "lightning": {
-        "lr": 1e-4
+    "optimizer": {
+        "type": "Adam",
+        "args": {
+            "lr": 0.0001
+        }
     },
     "loss": {
         "type": "WaveGlowLoss",
