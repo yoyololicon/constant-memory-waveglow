@@ -14,11 +14,7 @@ class AngleEmbedding(nn.Module):
 
     def forward(self, index):
         embed_num = self.embed_num
-        index = ((index / torch.pi + 1) * (embed_num // 2)).floor().long()
-        index = (index < 0) * 0 + (index >= 0) * (index < embed_num) * \
-            index + (index >= embed_num) * (embed_num - 1)
-        assert torch.min(index).item() >= 0 and torch.max(
-            index).item() < embed_num
+        index = ((index / torch.pi + 1) * 0.5 * (embed_num - 1)).long()
         return self.embed(index)
 
 
@@ -39,6 +35,7 @@ class WSRGlow(WaveGlow):
         self.register_buffer('window', torch.hann_window(self.n_fft))
 
     def _get_cond(self, c):
+        c = c.clip_(-1, 1)
         c_emb = self.mu_enc(c).view(c.shape[0], -1, 8 * 400).transpose(1, 2)
         spec = torch.stft(
             F.pad(c.unsqueeze(1), (4, 4), mode='reflect').squeeze(1),
