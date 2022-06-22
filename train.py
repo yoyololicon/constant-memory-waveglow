@@ -53,7 +53,7 @@ def main(args, config):
         config['data_loader']['batch_size'] //= gpus
 
     callbacks = [
-        ModelSummary(max_depth=-1),
+        ModelSummary(max_depth=2),
         LearningRateMonitor('epoch')
         # DeviceStatsMonitor()
     ]

@@ -4,7 +4,7 @@
         "type": "WSRGlow",
         "args": {
             "upsample_rate": 2,
-            "memory_efficient": false
+            "memory_efficient": true
         }
     },
     "dataset": {
