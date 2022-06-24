@@ -30,6 +30,7 @@ class LSD(torch.nn.Module):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('vctk', type=str)
+    parser.add_argument('-q', type=int, default=2)
     parser.add_argument('--ckpt', type=str,
                         default='../WSRGlow/ckpt/x2_best.pt')
     parser.add_argument('--downsample-type', type=str,
@@ -43,7 +44,7 @@ if __name__ == '__main__':
     model = model.cuda()
 
     sinc_kwargs = {
-        'q': 2,
+        'q': args.q,
         'roll_off': 0.962,
         'num_zeros': 128,
         'window_func': partial(torch.kaiser_window, periodic=False,
@@ -62,10 +63,11 @@ if __name__ == '__main__':
     pbar = tqdm(total=len(test_files))
 
     lsd_list = []
+    chunk_size = 8 * args.q
     for filename in test_files:
         raw_y, sr = torchaudio.load(filename)
         raw_y = raw_y.cuda()
-        offset = raw_y.shape[1] % 16
+        offset = raw_y.shape[1] % chunk_size
         if offset > 0:
             y = raw_y[:, :-offset]
         else:
