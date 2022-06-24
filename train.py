@@ -73,6 +73,7 @@ def main(args, config):
     trainer = pl.Trainer.from_argparse_args(
         args, callbacks=callbacks, log_every_n_steps=1,
         benchmark=True, detect_anomaly=True, gpus=gpus,
+        max_epochs=100,
         strategy=DDPPlugin(find_unused_parameters=False) if gpus > 1 else None)
     trainer.fit(lit_model, ckpt_path=args.ckpt_path)
 
