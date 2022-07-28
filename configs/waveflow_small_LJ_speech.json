@@ -18,16 +18,17 @@
     "dataset": {
         "type": "RandomWAVDataset",
         "args": {
-            "data_dir": "~/data-disk/Datasets/LJSpeech-1.1/wavs/",
-            "size": 12000,
-            "segment": 16000
+            "data_dir": "~/data-disk/Datasets/LJ/train/",
+            "size": 80000,
+            "segment": 16000,
+            "deterministic": false
         }
     },
     "data_loader": {
-        "batch_size": 12,
-        "shuffle": true,
+        "batch_size": 8,
+        "shuffle": false,
         "num_workers": 4,
-        "prefetch_factor": 4,
+        "prefetch_factor": 2,
         "pin_memory": true
     },
     "optimizer": {
@@ -40,7 +41,7 @@
     "loss": {
         "type": "WaveGlowLoss",
         "args": {
-            "sigma": 0.7,
+            "sigma": 1.0,
             "elementwise_mean": true
         }
     },
@@ -50,7 +51,6 @@
             "sr": 22050,
             "n_fft": 1024,
             "hop_length": 256,
-            "f_max": 8000,
             "n_mels": 80
         }
     }
