@@ -3,3 +3,4 @@ saved/*
 *.pyc
 .vscode/*
 lightning_logs/*
+wsrglow_checkpoints/*
