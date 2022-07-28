@@ -1,26 +1,25 @@
 import os
 import json
 import argparse
-
 import torch
-
 
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelSummary, DeviceStatsMonitor, LearningRateMonitor
 from pytorch_lightning.plugins import DDPPlugin
+from pytorch_lightning.loggers import TensorBoardLogger
 import torchaudio
-
 
 from model import LightModel
 
 
 class TestFileCallBack(pl.Callback):
-    def __init__(self, test_file: str) -> None:
+    def __init__(self, test_file: str, test_sigma: float) -> None:
         super().__init__()
 
         y, sr = torchaudio.load(test_file)
         self.test_y = y.mean(0)
         self.sr = sr
+        self.test_sigma = test_sigma
 
     def on_train_epoch_end(self, trainer: pl.Trainer, pl_module: LightModel) -> None:
         if not trainer.is_global_zero:
@@ -28,7 +27,7 @@ class TestFileCallBack(pl.Callback):
         y = self.test_y.to(pl_module.device).unsqueeze(0)
         with torch.no_grad():
             cond = pl_module.conditioner(y)
-            pred = pl_module(cond, 0.7).cpu()
+            pred = pl_module(cond, self.test_sigma).cpu()
 
         trainer.logger.experiment.add_audio(
             'reconstruct_audio', pred[:, None], sample_rate=self.sr, global_step=trainer.global_step)
@@ -58,7 +57,7 @@ def main(args, config):
         # DeviceStatsMonitor()
     ]
     if args.test_file:
-        callbacks.append(TestFileCallBack(args.test_file))
+        callbacks.append(TestFileCallBack(args.test_file, args.test_sigma))
     if args.lr:
         callbacks.append(ChangeLRCallback(args.lr))
 
@@ -70,10 +69,12 @@ def main(args, config):
     else:
         lit_model = LightModel(config)
 
+    logger = TensorBoardLogger(save_dir='tb_logs', name=config["name"])
+
     trainer = pl.Trainer.from_argparse_args(
         args, callbacks=callbacks, log_every_n_steps=1,
-        benchmark=True, detect_anomaly=True, gpus=gpus,
-        max_epochs=100,
+        benchmark=True, detect_anomaly=True, gpus=gpus, precision=16 if args.half else 32,
+        max_epochs=args.max_epochs, logger=logger,
         strategy=DDPPlugin(find_unused_parameters=False) if gpus > 1 else None)
     trainer.fit(lit_model, ckpt_path=args.ckpt_path)
 
@@ -86,10 +87,13 @@ if __name__ == '__main__':
                         help='config file path (default: None)')
     parser.add_argument('--ckpt-path', type=str)
     parser.add_argument('--test-file', type=str)
+    parser.add_argument('--test-sigma', type=float, default=1.0)
     parser.add_argument('--seed', type=int, default=None)
     parser.add_argument('--lr', type=float, default=None,
                         help='force learning rate')
     parser.add_argument('--no-tf32', action='store_true')
+    parser.add_argument('--half', action='store_true')
+    parser.add_argument('--max-epochs', type=int, default=100)
     args = parser.parse_args()
 
     if args.no_tf32 and torch.cuda.is_available():
