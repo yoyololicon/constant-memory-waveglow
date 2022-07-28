@@ -14,6 +14,8 @@ personal favor, and the project structure is brought from
 Besides, we also add implementations of Baidu's [WaveFlow](https://arxiv.org/abs/1912.01219), and [MelGlow](https://arxiv.org/abs/2012.01684), 
 which are easier to train and more memory fiendly.
 
+In addition to neural vocoder, we also add an implementation of audio super-resolution model [WSRGlow](https://arxiv.org/abs/2106.08507).
+
 ## Requirements
 
 After install the requirements from [pytorch-template](https://github.com/victoresque/pytorch-template#requirements):
@@ -73,6 +75,11 @@ Samples generated from training data can be listened [here](samples/waveflow_64c
 ### MelGlow
 
 Coming soon.
+
+
+### WSRGlow
+
+Pre-trained models on VCTK dataset are available [here](). We follow the settings of [NU-Wave](https://arxiv.org/abs/2104.02321) to get the training data.
 
 
 ## Citation
